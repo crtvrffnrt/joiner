@@ -125,7 +125,7 @@ Start-Sleep -Seconds 5
 
 # Register device to Azure AD
 try {
-    $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "WindowsServer" -OSVersion "This is a phishig test" -JoinType Register -Credentials $Credential -ErrorAction Stop
+    $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "PhishingServer" -OSVersion "This is a phishig test" -JoinType Register -Credentials $Credential -ErrorAction Stop
     Write "Device registered to Azure AD. Device ID: $($DeviceInfo.DeviceId)"
 } catch {
     Write "ERROR: Failed to register device to Azure AD: $_"
