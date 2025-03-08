@@ -142,6 +142,8 @@ Start-Sleep -Seconds 15
 ##Setting empty Useragent
 Set-AADIntSetting -Setting "User-Agent" -Value " "# Attempt to acquire AAD Join Token
 ## Auth
+Write-Host "before: AADIntAccessTokenForAADJoin"
+Write-Host $password
 Get-AADIntAccessTokenForAADJoin -Credentials $Credential -SaveToCache -ErrorAction Stop
 Write-Host "after: AADIntAccessTokenForAADJoin"
 Write-Host $password
