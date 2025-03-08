@@ -83,7 +83,8 @@ try {
     Write-Host "ERROR: Failed to create credentials: $_" -ForegroundColor Red
     exit 1
 }
-
+Start-Sleep -Seconds 5
+$Credential
 # Logging Function
 Function Log($Message) {
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
