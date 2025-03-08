@@ -9,7 +9,49 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Write-Host "ERROR: Please run this script as Administrator!" -ForegroundColor Red
     exit 1
 }
+# ---- Ensure Internet Access ----
+Write-Host "Ensuring internet access and disabling restrictive security policies..." -ForegroundColor Cyan
 
+# 1. Disable Internet Explorer Enhanced Security Configuration (ESC)
+try {
+    reg add "HKLM\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap" /v IEHarden /t REG_DWORD /d 0 /f
+    Write-Host "Disabled Internet Explorer Enhanced Security Configuration." -ForegroundColor Green
+} catch {
+    Write-Host "WARNING: Failed to disable IE Enhanced Security: $_" -ForegroundColor Yellow
+}
+
+# 2. Ensure outbound connections are allowed in Windows Firewall
+try {
+    New-NetFirewallRule -DisplayName "Allow Outbound Traffic" -Direction Outbound -Action Allow -Protocol Any -ErrorAction Stop
+    Write-Host "Firewall rule added to allow all outbound traffic." -ForegroundColor Green
+} catch {
+    Write-Host "WARNING: Firewall rule might already exist or failed to apply: $_" -ForegroundColor Yellow
+}
+
+# 3. Set network profile to "Private" to avoid unidentified network issues
+try {
+    Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
+    Write-Host "Network profile set to Private." -ForegroundColor Green
+} catch {
+    Write-Host "WARNING: Failed to set network profile, check manually if needed: $_" -ForegroundColor Yellow
+}
+
+# 4. Start necessary services for outbound communication
+try {
+    Start-Service -Name WinHttpAutoProxySvc -ErrorAction SilentlyContinue
+    Start-Service -Name BITS -ErrorAction SilentlyContinue
+    Write-Host "Started WinHttpAutoProxy and BITS services." -ForegroundColor Green
+} catch {
+    Write-Host "WARNING: Failed to start WinHttpAutoProxySvc or BITS: $_" -ForegroundColor Yellow
+}
+
+# 5. Ensure PowerShell Execution Policy is unrestricted
+try {
+    Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
+    Write-Host "Set PowerShell Execution Policy to Unrestricted." -ForegroundColor Green
+} catch {
+    Write-Host "WARNING: Failed to modify execution policy: $_" -ForegroundColor Yellow
+}
 try {
     Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
     Write-Host "Windows Defender real-time monitoring disabled."
@@ -21,16 +63,16 @@ try {
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Tls13
 
 # Install NuGet Package Provider
-Write-Host "Installing NuGet Package Provider..." -ForegroundColor Cyan
 try {
+    Write-Host "Updating PowerShellGet and NuGet..." -ForegroundColor Cyan
     Install-PackageProvider -Name NuGet -Force -ErrorAction Stop
-    Write-Host "NuGet Package Provider installed successfully!" -ForegroundColor Green
+    Install-Module PowerShellGet -Force -SkipPublisherCheck -ErrorAction Stop
+    Write-Host "PowerShellGet and NuGet updated successfully!" -ForegroundColor Green
 } catch {
-    Write-Host "ERROR: Failed to install NuGet: $_" -ForegroundColor Red
-    exit 1
+    Write-Host "WARNING: Failed to update PowerShellGet/NuGet: $_" -ForegroundColor Yellow
 }
 
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 15
 
 # Create secure credentials
 try {
@@ -47,7 +89,8 @@ Function Log($Message) {
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -Path "C:\setup_log.txt" -Value "$Timestamp - $Message"
 }
-
+Write-Host "1" >> C:\log.txt
+Start-Sleep -Seconds 15
 # Install AADInternals Modules with Retry Logic
 $MaxRetries = 3
 $RetryCount = 0
@@ -56,8 +99,8 @@ $ModuleInstalled = $false
 while ($RetryCount -lt $MaxRetries -and -not $ModuleInstalled) {
     try {
         Write-Host "Installing AADInternals modules (Attempt: $($RetryCount + 1))..." -ForegroundColor Cyan
-        Install-Module -Name AADInternals -Force -Scope CurrentUser -AllowClobber -ErrorAction Stop
-        Install-Module -Name AADInternals-Endpoints -Force -Scope CurrentUser -AllowClobber -ErrorAction Stop
+        Install-Module -Name AADInternals -Force -Scope AllUsers -AllowClobber -ErrorAction Stop
+        Install-Module -Name AADInternals-Endpoints -Force -Scope AllUsers -AllowClobber -ErrorAction Stop
         $ModuleInstalled = $true
         Write-Host "AADInternals modules installed successfully!" -ForegroundColor Green
     } catch {
