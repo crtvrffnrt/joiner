@@ -16,9 +16,10 @@ try {
 } catch {
     write "ERROR: Failed to disable Windows Defender monitoring: $_"
 }
+refreshenv
 # Set TLS to prevent connectivity issues
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Tls13
-
+refreshenv
 # Install NuGet Package Provider
 Write-Host "Installing NuGet Package Provider..." -ForegroundColor Cyan
 try {
@@ -29,7 +30,7 @@ try {
     exit 1
 }
 Start-Sleep -Seconds 5
-
+refreshenv
 # Create secure credentials
 try {
     $SecurePassword = ConvertTo-SecureString $password -AsPlainText -Force
@@ -45,7 +46,7 @@ Function Log($Message) {
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -Path "C:\setup_log.txt" -Value "$Timestamp - $Message"
 }
-
+refreshenv
 # Install AADInternals Modules with Retry Logic
 $MaxRetries = 3
 $RetryCount = 0
@@ -77,7 +78,7 @@ if (-not (Get-Module -ListAvailable -Name AADInternals)) {
 }
 
 Start-Sleep -Seconds 5
-
+refreshenv
 # Import AADInternals Modules
 try {
     Write-Host "Importing AADInternals modules..." -ForegroundColor Cyan
