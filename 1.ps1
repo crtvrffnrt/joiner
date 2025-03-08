@@ -4,22 +4,22 @@ param(
     [string]$password,
     [string]$RESOURCE_GROUP
 )
-
 # Ensure PowerShell is running as Administrator
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Host "ERROR: Please run this script as Administrator!" -ForegroundColor Red
     exit 1
 }
+
 try {
     Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
-    write "Windows Defender real-time monitoring disabled."
+    Write-Host "Windows Defender real-time monitoring disabled."
 } catch {
-    write "ERROR: Failed to disable Windows Defender monitoring: $_"
+    Write-Host "ERROR: Failed to disable Windows Defender monitoring: $_"
 }
-refreshenv
+
 # Set TLS to prevent connectivity issues
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Tls13
-refreshenv
+
 # Install NuGet Package Provider
 Write-Host "Installing NuGet Package Provider..." -ForegroundColor Cyan
 try {
@@ -29,8 +29,9 @@ try {
     Write-Host "ERROR: Failed to install NuGet: $_" -ForegroundColor Red
     exit 1
 }
+
 Start-Sleep -Seconds 5
-refreshenv
+
 # Create secure credentials
 try {
     $SecurePassword = ConvertTo-SecureString $password -AsPlainText -Force
@@ -46,7 +47,7 @@ Function Log($Message) {
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -Path "C:\setup_log.txt" -Value "$Timestamp - $Message"
 }
-refreshenv
+
 # Install AADInternals Modules with Retry Logic
 $MaxRetries = 3
 $RetryCount = 0
@@ -78,7 +79,7 @@ if (-not (Get-Module -ListAvailable -Name AADInternals)) {
 }
 
 Start-Sleep -Seconds 5
-refreshenv
+
 # Import AADInternals Modules
 try {
     Write-Host "Importing AADInternals modules..." -ForegroundColor Cyan
@@ -91,29 +92,46 @@ try {
 }
 Start-Sleep -Seconds 5
 
-# Acquire AAD Join Token
+# Attempt to acquire AAD Join Token
 try {
-    Write-Host "Acquiring Azure AD Join Token..." -ForegroundColor Cyan
     $AADToken = Get-AADIntAccessTokenForAADJoin -Credentials $Credential -SaveToCache -ErrorAction Stop
-    @{RefreshToken=$AADToken.RefreshToken} | ConvertTo-Json | Out-File "C:\to.json" -Encoding utf8
-    @{AccessToken=$AADToken.AccessToken} | ConvertTo-Json | Out-File "C:\ac.json" -Encoding utf8
-    Write-Host "Azure AD Join token acquired and saved!" -ForegroundColor Green
+    Write-Host "AAD Join token acquired successfully." -ForegroundColor Green
 } catch {
     Write-Host "ERROR: Failed to acquire Azure AD Join token: $_" -ForegroundColor Red
     exit 1
 }
 
-Start-Sleep -Seconds 5
+# Attempt to export the Refresh Token
+try {
+    @{RefreshToken=$AADToken.RefreshToken} | ConvertTo-Json | Out-File "C:\to.json" -Encoding utf8
+    Write-Host "Refresh Token exported successfully." -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to export Refresh Token: $_" -ForegroundColor Red
+    exit 1
+}
 
+# Attempt to export the Access Token
+try {
+    @{AccessToken=$AADToken.AccessToken} | ConvertTo-Json | Out-File "C:\ac.json" -Encoding utf8
+    Write-Host "Access Token exported successfully." -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to export Access Token: $_" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "All operations completed successfully!" -ForegroundColor Green
+
+Start-Sleep -Seconds 5
 # Register Device to Azure AD
 try {
     Write-Host "Registering device to Azure AD..." -ForegroundColor Cyan
-    $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "Server" -OSVersion "Windows Server 2025" -JoinType Register -Credentials $Credential -ErrorAction Stop
+    $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "Server" -OSVersion "2025" -JoinType Register -ErrorAction Stop
     Write-Host "Device registered to Azure AD successfully! Device ID: $($DeviceInfo.DeviceId)" -ForegroundColor Green
 } catch {
     Write-Host "ERROR: Failed to register device to Azure AD: $_" -ForegroundColor Red
     exit 1
 }
+
 
 Start-Sleep -Seconds 5
 
@@ -132,4 +150,4 @@ try {
 # Restart Computer to Apply Changes
 Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
 Start-Sleep -Seconds 10
-Restart-Computer -Force
+## Restart-Computer -Force
