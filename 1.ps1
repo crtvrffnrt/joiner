@@ -160,11 +160,11 @@ for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
         }
     }
 }
-
 if (-not $registered) {
     Write-Host "ERROR: All attempts to register the device have failed. Exiting..." -ForegroundColor Red
     exit 1
 }
+Get-AADIntCache > C:\to.json
 # --- End of replacement snippet ---
 # Attempt to export the Refresh Token
 # Configure Registry for MDM Enrollment
