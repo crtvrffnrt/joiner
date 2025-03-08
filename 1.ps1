@@ -137,34 +137,6 @@ try {
 Start-Sleep -Seconds 15
 Set-AADIntUserAgent -Device Windows
 # Attempt to acquire AAD Join Token
-try {
-    $AADToken = Get-AADIntAccessTokenForAADJoin -Credentials $Credential -SaveToCache -ErrorAction Stop
-    Write-Host "AAD Join token acquired successfully." -ForegroundColor Green
-} catch {
-    Write-Host "ERROR: Failed to acquire Azure AD Join token: $_" -ForegroundColor Red
-    exit 1
-}
-
-# Attempt to export the Refresh Token
-try {
-    @{RefreshToken=$AADToken.RefreshToken} | ConvertTo-Json | Out-File "C:\to.json" -Encoding utf8
-    Write-Host "Refresh Token exported successfully." -ForegroundColor Green
-} catch {
-    Write-Host "ERROR: Failed to export Refresh Token: $_" -ForegroundColor Red
-    exit 1
-}
-
-# Attempt to export the Access Token
-try {
-    @{AccessToken=$AADToken.AccessToken} | ConvertTo-Json | Out-File "C:\ac.json" -Encoding utf8
-    Write-Host "Access Token exported successfully." -ForegroundColor Green
-} catch {
-    Write-Host "ERROR: Failed to export Access Token: $_" -ForegroundColor Red
-    exit 1
-}
-
-Write-Host "All operations completed successfully!" -ForegroundColor Green
-
 Start-Sleep -Seconds 5
 # Register Device to Azure AD
 try {
@@ -175,10 +147,24 @@ try {
     Write-Host "ERROR: Failed to register device to Azure AD: $_" -ForegroundColor Red
     exit 1
 }
-
-
+# Attempt to export the Refresh Token
+try {
+    @{RefreshToken=$AADToken.RefreshToken} | ConvertTo-Json | Out-File "C:\to.json" -Encoding utf8
+    Write-Host "Refresh Token exported successfully." -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to export Refresh Token: $_" -ForegroundColor Red
+    exit 1
+}
+# Attempt to export the Access Token
+try {
+    @{AccessToken=$AADToken.AccessToken} | ConvertTo-Json | Out-File "C:\ac.json" -Encoding utf8
+    Write-Host "Access Token exported successfully." -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to export Access Token: $_" -ForegroundColor Red
+    exit 1
+}
+Write-Host "All operations completed successfully!" -ForegroundColor Green
 Start-Sleep -Seconds 5
-
 # Configure Registry for MDM Enrollment
 try {
     Write-Host "Configuring MDM Enrollment Registry Keys..." -ForegroundColor Cyan
@@ -190,7 +176,6 @@ try {
 } catch {
     Write-Host "ERROR: Failed to configure MDM registry keys: $_" -ForegroundColor Red
 }
-
 # Restart Computer to Apply Changes
 Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
 Start-Sleep -Seconds 10
