@@ -151,7 +151,7 @@ $registered = $false
 for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
     Write-Host "Registering device to Azure AD (Attempt: $attempt/$maxRetries)..." -ForegroundColor Cyan
     try {
-        $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "Windows" -OSVersion "2025" -JoinType Joined -ErrorAction Stop
+        $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "Windows" -OSVersion "2025" -JoinType Join -ErrorAction Stop
         Write-Host "Device Joined to EntraId successfully! Device ID: $($DeviceInfo.DeviceId)" -ForegroundColor Green
         $registered = $true
         break
