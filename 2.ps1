@@ -188,5 +188,20 @@ try {
 }
 # Restart Computer to Apply Changes
 Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
-Start-Sleep -Seconds 10
+Start-Sleep -Seconds 2
+# Enable Auto-Login for the specified user
+try {
+    $RegPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+    Set-ItemProperty -Path $RegPath -Name "AutoAdminLogon" -Value "1" -Type String
+    Set-ItemProperty -Path $RegPath -Name "DefaultUsername" -Value "$username"
+    Set-ItemProperty -Path $RegPath -Name "DefaultPassword" -Value "$password"
+    Write-Host "Auto-login configured for $username" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to set Auto-Login: $_" -ForegroundColor Red
+}
+
+# Restart System to Apply Entra ID Join & MDM Enrollment
+Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
+
+Start-Sleep -Seconds 1
 Restart-Computer -Force
