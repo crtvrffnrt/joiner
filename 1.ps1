@@ -133,7 +133,7 @@ try {
     Write-Host "ERROR: Failed to import AADInternals modules: $_" -ForegroundColor Red
     exit 1
 }
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 15
 
 # Attempt to acquire AAD Join Token
 try {
