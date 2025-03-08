@@ -4,6 +4,7 @@ param(
     [string]$password,
     [string]$RESOURCE_GROUP
 )
+Write-Host "neu"
 # Ensure PowerShell is running as Administrator
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Host "ERROR: Please run this script as Administrator!" -ForegroundColor Red
