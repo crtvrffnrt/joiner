@@ -139,16 +139,18 @@ try {
     exit 1
 }
 Start-Sleep -Seconds 15
-Set-AADIntUserAgent -Device Windows
-# Attempt to acquire AAD Join Token
+##Setting empty Useragent
+Set-AADIntSetting -Setting "User-Agent" -Value " "# Attempt to acquire AAD Join Token
+## Auth
 Get-AADIntAccessTokenForAADJoin -Credentials $Credential -SaveToCache -ErrorAction Stop
+Write-Host "after: AADIntAccessTokenForAADJoin"
+Write-Host $password
 Start-Sleep -Seconds 5
 # Register Device to Azure AD
 # --- Replace this block in your script ---
 $maxRetries = 5
 $delaySeconds = 20
 $registered = $false
-
 for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
     Write-Host "Registering device to Azure AD (Attempt: $attempt/$maxRetries)..." -ForegroundColor Cyan
     try {
