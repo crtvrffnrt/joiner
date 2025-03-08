@@ -1,29 +1,18 @@
+param(
+    [string]$username,
+    [string]$domain,
+    [string]$password,
+    [string]$RESOURCE_GROUP
+)
 
-# Merged Setup Script (1.ps1)
-# This script performs the following steps:
-# 1. Installs Nuget PackageProvider and waits.
-# 2. Creates credentials.
-# 3. Defines a logging function.
-# 4. Installs AADInternals modules.
-# 5. Installs Python.
-# 6. Disables Windows Defender real-time monitoring.
-# 7. Imports AADInternals modules (with retry logic).
-# 8. Re-creates credentials (if needed).
-# 9. Acquires AAD Join token and exports tokens.
-# 10. Registers the device to Azure AD.
-# 11. Acquires Intune MDM token and enrolls the device in Intune.
-# 12. Configures registry settings for MDM.
-# 13. Adds the computer to the AzureAD domain.
-# 14. Downloads, extracts, and installs dependencies for the pytune repository,
-#     and finally executes the pytune script.
-
+# Wait and install Nuget PackageProvider
 Start-Sleep -Seconds 5
 Install-PackageProvider -Name Nuget -Force -ErrorAction Stop
 Start-Sleep -Seconds 5
 
-# Create credentials
+# Create credentials using provided parameters
 try {
-    $SecurePassword = ConvertTo-SecureString "$password" -AsPlainText -Force
+    $SecurePassword = ConvertTo-SecureString $password -AsPlainText -Force
     $Credential = New-Object System.Management.Automation.PSCredential("$username@$domain", $SecurePassword)
     Write "Credentials created."
 } catch {
@@ -31,7 +20,7 @@ try {
     exit
 }
 
-# Define Log function (used by subsequent operations)
+# Define a logging function
 Function Log($Message) {
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -Path "C:\setup_log.txt" -Value "$Timestamp - $Message"
@@ -75,7 +64,7 @@ try {
 }
 Start-Sleep -Seconds 5
 try {
-    $env:PSModulePath = [System.Environment]::GetEnvironmentVariable('PSModulePath','User') + ';' + [System.Environment]::GetEnvironmentVariable('PSModulePath', 'Machine')
+    $env:PSModulePath = [System.Environment]::GetEnvironmentVariable('PSModulePath','User') + ';' + [System.Environment]::GetEnvironmentVariable('PSModulePath','Machine')
     Import-Module AADInternals,AADInternals-Endpoints -Force -ErrorAction Stop
     Write-Output "AADInternals modules imported."
 } catch {
@@ -113,7 +102,7 @@ Start-Sleep -Seconds 5
 
 # Re-create credentials (if needed)
 try {
-    $SecurePassword = ConvertTo-SecureString "$password" -AsPlainText -Force
+    $SecurePassword = ConvertTo-SecureString $password -AsPlainText -Force
     $Credential = New-Object System.Management.Automation.PSCredential("$username@$domain", $SecurePassword)
     Write "Credentials created."
 } catch {
@@ -136,7 +125,7 @@ Start-Sleep -Seconds 5
 
 # Register device to Azure AD
 try {
-    $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName "$RESOURCE_GROUP" -DeviceType "WindowsServer" -OSVersion "This is a phishig test" -JoinType Register -Credentials $Credential -ErrorAction Stop
+    $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "WindowsServer" -OSVersion "This is a phishig test" -JoinType Register -Credentials $Credential -ErrorAction Stop
     Write "Device registered to Azure AD. Device ID: $($DeviceInfo.DeviceId)"
 } catch {
     Write "ERROR: Failed to register device to Azure AD: $_"
@@ -156,7 +145,7 @@ Start-Sleep -Seconds 5
 
 # Enroll device in Intune
 try {
-    $IntuneEnrollment = Join-AADIntDeviceToIntune -DeviceName "$RESOURCE_GROUP" -AccessToken $IntuneToken -ErrorAction Stop
+    $IntuneEnrollment = Join-AADIntDeviceToIntune -DeviceName $RESOURCE_GROUP -AccessToken $IntuneToken -ErrorAction Stop
     Write "Device enrolled in Intune. Certificate Thumbprint: $($IntuneEnrollment.Thumbprint)"
 } catch {
     Write "ERROR: Failed to enroll device into Intune: $_"
@@ -203,4 +192,3 @@ if (Test-Path ".\requirements.txt") {
     Write "No requirements.txt found. Skipping dependency installation."
 }
 Write "Executing pytune script..."
-python pytune.py --help
