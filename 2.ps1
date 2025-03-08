@@ -190,14 +190,28 @@ try {
 Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
 Start-Sleep -Seconds 2
 # Enable Auto-Login for the specified user
+# Configure Auto-Logon
 try {
+    Write-Host "Configuring Auto-Logon..." -ForegroundColor Cyan
     $RegPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
     Set-ItemProperty -Path $RegPath -Name "AutoAdminLogon" -Value "1" -Type String
-    Set-ItemProperty -Path $RegPath -Name "DefaultUsername" -Value "$username"
-    Set-ItemProperty -Path $RegPath -Name "DefaultPassword" -Value "$password"
-    Write-Host "Auto-login configured for $username" -ForegroundColor Green
+    Set-ItemProperty -Path $RegPath -Name "DefaultUsername" -Value $username
+    Set-ItemProperty -Path $RegPath -Name "DefaultDomainName" -Value $domain
+    Set-ItemProperty -Path $RegPath -Name "DefaultPassword" -Value $password
+    Write-Host "Auto-Logon configured successfully!" -ForegroundColor Green
 } catch {
-    Write-Host "ERROR: Failed to set Auto-Login: $_" -ForegroundColor Red
+    Write-Host "ERROR: Failed to configure Auto-Logon: $_" -ForegroundColor Red
+}
+# Suppress Windows Welcome Experience and Privacy Settings
+try {
+    Write-Host "Suppressing Windows Welcome Experience and Privacy Settings..." -ForegroundColor Cyan
+    $OOBERegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE"
+    New-ItemProperty -Path $OOBERegPath -Name "HidePrivacySettings" -Value 1 -PropertyType DWORD -Force | Out-Null
+    New-ItemProperty -Path $OOBERegPath -Name "SkipMachineOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
+    New-ItemProperty -Path $OOBERegPath -Name "SkipUserOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
+    Write-Host "Windows Welcome Experience and Privacy Settings suppressed successfully!" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to suppress Windows Welcome Experience and Privacy Settings: $_" -ForegroundColor Red
 }
 
 # Restart System to Apply Entra ID Join & MDM Enrollment
