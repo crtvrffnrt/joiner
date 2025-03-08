@@ -150,4 +150,4 @@ try {
 # Restart Computer to Apply Changes
 Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
 Start-Sleep -Seconds 10
-## Restart-Computer -Force
+Restart-Computer -Force
