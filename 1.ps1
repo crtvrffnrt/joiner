@@ -140,32 +140,33 @@ Set-AADIntUserAgent -Device Windows
 Get-AADIntAccessTokenForAADJoin -Credentials $Credential -SaveToCache -ErrorAction Stop
 Start-Sleep -Seconds 5
 # Register Device to Azure AD
-try {
-    Write-Host "Registering device to Azure AD..." -ForegroundColor Cyan
-    $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "Server" -OSVersion "2025" -JoinType Register -ErrorAction Stop
-    Write-Host "Device registered to Azure AD successfully! Device ID: $($DeviceInfo.DeviceId)" -ForegroundColor Green
-} catch {
-    Write-Host "ERROR: Failed to register device to Azure AD: $_" -ForegroundColor Red
+# --- Replace this block in your script ---
+$maxRetries = 5
+$delaySeconds = 20
+$registered = $false
+
+for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+    Write-Host "Registering device to Azure AD (Attempt: $attempt/$maxRetries)..." -ForegroundColor Cyan
+    try {
+        $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "Server" -OSVersion "2025" -JoinType Register -ErrorAction Stop
+        Write-Host "Device registered to Azure AD successfully! Device ID: $($DeviceInfo.DeviceId)" -ForegroundColor Green
+        $registered = $true
+        break
+    } catch {
+        Write-Host "ERROR: Failed to register device to Azure AD (Attempt $attempt): $_" -ForegroundColor Red
+        if ($attempt -lt $maxRetries) {
+            Write-Host "Waiting $delaySeconds seconds before retrying..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $delaySeconds
+        }
+    }
+}
+
+if (-not $registered) {
+    Write-Host "ERROR: All attempts to register the device have failed. Exiting..." -ForegroundColor Red
     exit 1
 }
+# --- End of replacement snippet ---
 # Attempt to export the Refresh Token
-try {
-    @{RefreshToken=$AADToken.RefreshToken} | ConvertTo-Json | Out-File "C:\to.json" -Encoding utf8
-    Write-Host "Refresh Token exported successfully." -ForegroundColor Green
-} catch {
-    Write-Host "ERROR: Failed to export Refresh Token: $_" -ForegroundColor Red
-    exit 1
-}
-# Attempt to export the Access Token
-try {
-    @{AccessToken=$AADToken.AccessToken} | ConvertTo-Json | Out-File "C:\ac.json" -Encoding utf8
-    Write-Host "Access Token exported successfully." -ForegroundColor Green
-} catch {
-    Write-Host "ERROR: Failed to export Access Token: $_" -ForegroundColor Red
-    exit 1
-}
-Write-Host "All operations completed successfully!" -ForegroundColor Green
-Start-Sleep -Seconds 5
 # Configure Registry for MDM Enrollment
 try {
     Write-Host "Configuring MDM Enrollment Registry Keys..." -ForegroundColor Cyan
