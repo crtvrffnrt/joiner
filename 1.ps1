@@ -77,7 +77,7 @@ Start-Sleep -Seconds 15
 # Create secure credentials
 try {
     $SecurePassword = ConvertTo-SecureString $password -AsPlainText -Force
-    $Credential = New-Object System.Management.Automation.PSCredential($username@$domain, $SecurePassword)
+    $Credential = New-Object System.Management.Automation.PSCredential("$username@$domain", $SecurePassword)
     Write-Host "Credentials created successfully!" -ForegroundColor Green
 } catch {
     Write-Host "ERROR: Failed to create credentials: $_" -ForegroundColor Red
