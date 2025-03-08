@@ -134,7 +134,7 @@ try {
     exit 1
 }
 Start-Sleep -Seconds 15
-
+Set-AADIntUserAgent -Device Windows
 # Attempt to acquire AAD Join Token
 try {
     $AADToken = Get-AADIntAccessTokenForAADJoin -Credentials $Credential -SaveToCache -ErrorAction Stop
