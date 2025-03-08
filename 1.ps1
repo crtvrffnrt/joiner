@@ -137,6 +137,7 @@ try {
 Start-Sleep -Seconds 15
 Set-AADIntUserAgent -Device Windows
 # Attempt to acquire AAD Join Token
+Get-AADIntAccessTokenForAADJoin -Credentials $Credential -SaveToCache -ErrorAction Stop
 Start-Sleep -Seconds 5
 # Register Device to Azure AD
 try {
