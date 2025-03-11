@@ -117,10 +117,10 @@ main() {
     check_azure_authentication
     delete_old_resource_groups
     sleep 3
-    RANDOMNUM=$RANDOM
+    RANDOMNUM=$(echo $RANDOM$RANDOM | head -c 4)
     RESOURCE_GROUP="thiefjoinerRGDeleteme$RANDOMNUM"
     LOCATION="germanywestcentral"
-    VM_NAME="WindowsJoiner$RANDOMNUM"
+    VM_NAME="Win$RANDOMNUM"
     ADMIN_USER="joiner"
     ADMIN_PASSWORD=$(generate_random_password)
     ##IMAGE="MicrosoftWindowsServer:WindowsServer:2025-datacenter-azure-edition:latest"
