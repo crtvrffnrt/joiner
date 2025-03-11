@@ -225,7 +225,14 @@ try {
 } catch {
     Write-Host "ERROR: Failed to set keyboard layout: $_" -ForegroundColor Red
 }
-
+try {
+     Write-Host "Disabling LSASS Protection..." -ForegroundColor Cyan
+       $LSASSPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+     Set-ItemProperty -Path $LSASSPath -Name "RunAsPPL" -Value 0 -Type DWord -Force
+    Write-Host "LSASS Protection disabled successfully!" -ForegroundColor Green
+} catch {
+     Write-Host "ERROR: Failed to disable LSASS Protection: $_" -ForegroundColor Red
+ }
 # Skip First Visit Welcome Screen (Privacy, Diagnostics, Find My Device)
 try {
     Write-Host "Configuring OOBE settings to skip first-visit setup..." -ForegroundColor Cyan
