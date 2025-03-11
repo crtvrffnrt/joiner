@@ -117,10 +117,10 @@ main() {
     check_azure_authentication
     delete_old_resource_groups
     sleep 3
-    
-    RESOURCE_GROUP="thiefjoinerRGDeleteme$RANDOM"
+    RANDOMNUM=$RANDOM
+    RESOURCE_GROUP="thiefjoinerRGDeleteme$RANDOMNUM"
     LOCATION="germanywestcentral"
-    VM_NAME="WindowsServer"
+    VM_NAME="WindowsJoiner$RANDOMNUM"
     ADMIN_USER="joiner"
     ADMIN_PASSWORD=$(generate_random_password)
     ##IMAGE="MicrosoftWindowsServer:WindowsServer:2025-datacenter-azure-edition:latest"
