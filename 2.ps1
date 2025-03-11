@@ -213,7 +213,30 @@ try {
 } catch {
     Write-Host "ERROR: Failed to suppress Windows Welcome Experience and Privacy Settings: $_" -ForegroundColor Red
 }
+# Set Keyboard Layout to German (DE)
+try {
+    Write-Host "Setting keyboard layout to German (DE)..." -ForegroundColor Cyan
+    Set-WinUILanguageOverride -Language de-DE
+    Set-WinUserLanguageList -LanguageList de-DE -Force
+    Set-WinSystemLocale -SystemLocale de-DE
+    Set-Culture -CultureInfo de-DE
+    Set-WinHomeLocation -GeoId 94  # 94 corresponds to Germany
+    Write-Host "Keyboard layout set to German successfully!" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to set keyboard layout: $_" -ForegroundColor Red
+}
 
+# Skip First Visit Welcome Screen (Privacy, Diagnostics, Find My Device)
+try {
+    Write-Host "Configuring OOBE settings to skip first-visit setup..." -ForegroundColor Cyan
+    $OOBEPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE"
+    New-ItemProperty -Path $OOBEPath -Name "DisablePrivacyExperience" -Value 1 -PropertyType DWORD -Force | Out-Null
+    New-ItemProperty -Path $OOBEPath -Name "SkipMachineOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
+    New-ItemProperty -Path $OOBEPath -Name "SkipUserOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
+    Write-Host "OOBE settings configured successfully!" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to configure OOBE settings: $_" -ForegroundColor Red
+}
 # Restart System to Apply Entra ID Join & MDM Enrollment
 Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
 
