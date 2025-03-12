@@ -10,6 +10,12 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Write-Host "ERROR: Please run this script as Administrator!" -ForegroundColor Red
     exit 1
 }
+try {
+    Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
+    Write-Host "Set PowerShell Execution Policy to Unrestricted." -ForegroundColor Green
+} catch {
+    Write-Host "WARNING: Failed to modify execution policy: $_" -ForegroundColor Yellow
+}
 # ---- Ensure Internet Access ----
 Write-Host "Ensuring internet access and disabling restrictive security policies..." -ForegroundColor Cyan
 
