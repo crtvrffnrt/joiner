@@ -4,7 +4,6 @@ param(
     [string]$password,
     [string]$RESOURCE_GROUP
 )
-
 # Logging Functions
 Function Log-Info($Message) {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -17,168 +16,253 @@ Function Log-Error($Message) {
     Write-Host $errorMsg -ForegroundColor Red
     Add-Content -Path "C:\setup_log.txt" -Value $errorMsg
 }
-
-# Ensure running as Administrator
+Write-Host "neu"
+# Ensure PowerShell is running as Administrator
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Log-Error "Please run this script as Administrator!"
+    Write-Host "ERROR: Please run this script as Administrator!" -ForegroundColor Red
     exit 1
 }
-
-# Set Execution Policy
 try {
     Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
-    Log-Info "PowerShell Execution Policy set to Unrestricted."
+    Write-Host "Set PowerShell Execution Policy to Unrestricted." -ForegroundColor Green
 } catch {
-    Log-Error "Failed to set Execution Policy: $_"
+    Write-Host "WARNING: Failed to modify execution policy: $_" -ForegroundColor Yellow
 }
+# ---- Ensure Internet Access ----
+Write-Host "Ensuring internet access and disabling restrictive security policies..." -ForegroundColor Cyan
 
-# Ensure Internet Access and update security settings
-Log-Info "Ensuring internet access and disabling restrictive security policies..."
-
-# 1. Disable Internet Explorer Enhanced Security Configuration
+# 1. Disable Internet Explorer Enhanced Security Configuration (ESC)
 try {
     reg add "HKLM\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap" /v IEHarden /t REG_DWORD /d 0 /f
-    Log-Info "Disabled Internet Explorer Enhanced Security Configuration."
+    Write-Host "Disabled Internet Explorer Enhanced Security Configuration." -ForegroundColor Green
 } catch {
-    Log-Error "Failed to disable IE Enhanced Security: $_"
+    Write-Host "WARNING: Failed to disable IE Enhanced Security: $_" -ForegroundColor Yellow
 }
 
-# 2. Allow all outbound traffic in Windows Firewall
+# 2. Ensure outbound connections are allowed in Windows Firewall
 try {
     New-NetFirewallRule -DisplayName "Allow Outbound Traffic" -Direction Outbound -Action Allow -Protocol Any -ErrorAction Stop
-    Log-Info "Firewall rule added to allow all outbound traffic."
+    Write-Host "Firewall rule added to allow all outbound traffic." -ForegroundColor Green
 } catch {
-    Log-Error "Firewall rule might already exist or failed to apply: $_"
+    Write-Host "WARNING: Firewall rule might already exist or failed to apply: $_" -ForegroundColor Yellow
 }
 
-# 3. Set network profile to "Private"
+# 3. Set network profile to "Private" to avoid unidentified network issues
 try {
     Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
-    Log-Info "Network profile set to Private."
+    Write-Host "Network profile set to Private." -ForegroundColor Green
 } catch {
-    Log-Error "Failed to set network profile: $_"
+    Write-Host "WARNING: Failed to set network profile, check manually if needed: $_" -ForegroundColor Yellow
 }
 
 # 4. Start necessary services for outbound communication
 try {
     Start-Service -Name WinHttpAutoProxySvc -ErrorAction SilentlyContinue
     Start-Service -Name BITS -ErrorAction SilentlyContinue
-    Log-Info "Started WinHttpAutoProxySvc and BITS services."
+    Write-Host "Started WinHttpAutoProxy and BITS services." -ForegroundColor Green
 } catch {
-    Log-Error "Failed to start necessary services: $_"
+    Write-Host "WARNING: Failed to start WinHttpAutoProxySvc or BITS: $_" -ForegroundColor Yellow
 }
 
-# Disable Windows Defender realtime monitoring (if supported)
+# 5. Ensure PowerShell Execution Policy is unrestricted
+try {
+    Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
+    Write-Host "Set PowerShell Execution Policy to Unrestricted." -ForegroundColor Green
+} catch {
+    Write-Host "WARNING: Failed to modify execution policy: $_" -ForegroundColor Yellow
+}
 try {
     Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
-    Log-Info "Windows Defender real-time monitoring disabled."
+    Write-Host "Windows Defender real-time monitoring disabled."
 } catch {
-    Log-Error "Failed to disable Windows Defender monitoring: $_"
+    Write-Host "ERROR: Failed to disable Windows Defender monitoring: $_"
 }
 
 # Set TLS to prevent connectivity issues
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Tls13
 
-# Update NuGet and PowerShellGet provider
+# Install NuGet Package Provider
 try {
-    Log-Info "Updating PowerShellGet and NuGet Package Provider..."
+    Write-Host "Updating PowerShellGet and NuGet..." -ForegroundColor Cyan
     Install-PackageProvider -Name NuGet -Force -ErrorAction Stop
     Install-Module PowerShellGet -Force -SkipPublisherCheck -ErrorAction Stop
-    Log-Info "PowerShellGet and NuGet updated successfully."
+    Write-Host "PowerShellGet and NuGet updated successfully!" -ForegroundColor Green
 } catch {
-    Log-Error "Failed to update PowerShellGet/NuGet: $_"
+    Write-Host "WARNING: Failed to update PowerShellGet/NuGet: $_" -ForegroundColor Yellow
 }
 
 Start-Sleep -Seconds 15
-
 # Create secure credentials
 try {
-    $CleanUsername = $username.Trim("'")
-    $CleanDomain = $domain.Trim("'")
+    $CleanUsername = $username.Trim("'")  # Remove any surrounding single quotes
+    $CleanDomain = $domain.Trim("'")      # Remove any surrounding single quotes
+
     $SecurePassword = ConvertTo-SecureString $password -AsPlainText -Force
     $Credential = New-Object System.Management.Automation.PSCredential("$CleanUsername@$CleanDomain", $SecurePassword)
-    Log-Info "Credentials created successfully."
+
+    Write-Host "Credentials created successfully!" -ForegroundColor Green
 } catch {
-    Log-Error "Failed to create credentials: $_"
+    Write-Host "ERROR: Failed to create credentials: $_" -ForegroundColor Red
+    exit 1
+}
+
+
+# Install AADInternals Modules with Retry Logic
+$MaxRetries = 3
+$RetryCount = 0
+$ModuleInstalled = $false
+
+while ($RetryCount -lt $MaxRetries -and -not $ModuleInstalled) {
+    try {
+        Write-Host "Installing AADInternals modules (Attempt: $($RetryCount + 1))..." -ForegroundColor Cyan
+        Install-Module -Name AADInternals -Force -Scope AllUsers -AllowClobber -ErrorAction Stop
+        Install-Module -Name AADInternals-Endpoints -Force -Scope AllUsers -AllowClobber -ErrorAction Stop
+        $ModuleInstalled = $true
+        Write-Host "AADInternals modules installed successfully!" -ForegroundColor Green
+    } catch {
+        Write-Host "WARNING: Failed to install AADInternals modules. Retrying... ($_)" -ForegroundColor Yellow
+        Start-Sleep -Seconds 5
+        $RetryCount++
+    }
+}
+
+if (-not $ModuleInstalled) {
+    Write-Host "ERROR: Failed to install AADInternals modules after $MaxRetries attempts. Exiting..." -ForegroundColor Red
+    exit 1
+}
+
+# Verify module installation
+if (-not (Get-Module -ListAvailable -Name AADInternals)) {
+    Write-Host "ERROR: AADInternals module is not available. Exiting..." -ForegroundColor Red
     exit 1
 }
 
 Start-Sleep -Seconds 5
 
-# Configure Auto-Login
+# Import AADInternals Modules
 try {
-    Log-Info "Configuring Auto-Logon..."
-    $regPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
-    Set-ItemProperty -Path $regPath -Name "AutoAdminLogon" -Value "1" -Type String
-    Set-ItemProperty -Path $regPath -Name "DefaultUsername" -Value $username
-    Set-ItemProperty -Path $regPath -Name "DefaultDomainName" -Value $domain
-    Set-ItemProperty -Path $regPath -Name "DefaultPassword" -Value $password
-    Log-Info "Auto-Logon configured."
+    Write-Host "Importing AADInternals modules..." -ForegroundColor Cyan
+    Import-Module AADInternals -Force -ErrorAction Stop
+    Import-Module AADInternals-Endpoints -Force -ErrorAction Stop
+    Write-Host "AADInternals modules imported successfully!" -ForegroundColor Green
 } catch {
-    Log-Error "Failed to configure Auto-Logon: $_"
+    Write-Host "ERROR: Failed to import AADInternals modules: $_" -ForegroundColor Red
+    exit 1
 }
-
-# Configure MDM Enrollment Registry Keys
+Start-Sleep -Seconds 15
+##Setting empty Useragent
+Set-AADIntSetting -Setting "User-Agent" -Value " "# Attempt to acquire AAD Join Token
+## Auth
+Write-Host "before: AADIntAccessTokenForAADJoin"
+Write-Host $password
+Get-AADIntAccessTokenForAADJoin -Credentials $Credential -SaveToCache -ErrorAction Stop
+Write-Host "after: AADIntAccessTokenForAADJoin"
+Write-Host $password
+Start-Sleep -Seconds 5
+# Register Device to Azure AD
+# --- Replace this block in your script ---
+$maxRetries = 5
+$delaySeconds = 20
+$registered = $false
+for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+    Write-Host "Registering device to Azure AD (Attempt: $attempt/$maxRetries)..." -ForegroundColor Cyan
+    try {
+        $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "Windows" -OSVersion "2025" -JoinType Join -ErrorAction Stop
+        Write-Host "Device Joined to EntraId successfully! Device ID: $($DeviceInfo.DeviceId)" -ForegroundColor Green
+        $registered = $true
+        break
+    } catch {
+        Write-Host "ERROR: Failed to register device to Azure AD (Attempt $attempt): $_" -ForegroundColor Red
+        if ($attempt -lt $maxRetries) {
+            Write-Host "Waiting $delaySeconds seconds before retrying..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $delaySeconds
+        }
+    }
+}
+if (-not $registered) {
+    Write-Host "ERROR: All attempts to register the device have failed. Exiting..." -ForegroundColor Red
+    exit 1
+}
+Get-AADIntCache > C:\to.json
+# --- End of replacement snippet ---
+# Attempt to export the Refresh Token
+# Configure Registry for MDM Enrollment
 try {
-    Log-Info "Configuring MDM Enrollment Registry Keys..."
+    Write-Host "Configuring MDM Enrollment Registry Keys..." -ForegroundColor Cyan
     $MDMRegPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM"
     New-Item -Path $MDMRegPath -Force -ErrorAction Stop | Out-Null
     New-ItemProperty -Path $MDMRegPath -Name "AutoEnrollMDM" -Value 1 -PropertyType DWORD -Force | Out-Null
     New-ItemProperty -Path $MDMRegPath -Name "UseAADCredentialType" -Value 1 -PropertyType DWORD -Force | Out-Null
-    Log-Info "MDM Enrollment registry keys configured."
+    Write-Host "MDM Enrollment registry keys configured successfully!" -ForegroundColor Green
 } catch {
-    Log-Error "Failed to configure MDM registry keys: $_"
+    Write-Host "ERROR: Failed to configure MDM registry keys: $_" -ForegroundColor Red
 }
-
+# Restart Computer to Apply Changes
+Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
+Start-Sleep -Seconds 2
+# Enable Auto-Login for the specified user
+# Configure Auto-Logon
+try {
+    Write-Host "Configuring Auto-Logon..." -ForegroundColor Cyan
+    $RegPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+    Set-ItemProperty -Path $RegPath -Name "AutoAdminLogon" -Value "1" -Type String
+    Set-ItemProperty -Path $RegPath -Name "DefaultUsername" -Value $username
+    Set-ItemProperty -Path $RegPath -Name "DefaultDomainName" -Value $domain
+    Set-ItemProperty -Path $RegPath -Name "DefaultPassword" -Value $password
+    Write-Host "Auto-Logon configured successfully!" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to configure Auto-Logon: $_" -ForegroundColor Red
+}
 # Suppress Windows Welcome Experience and Privacy Settings
 try {
-    Log-Info "Suppressing Windows Welcome Experience and Privacy Settings..."
+    Write-Host "Suppressing Windows Welcome Experience and Privacy Settings..." -ForegroundColor Cyan
     $OOBERegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE"
     New-ItemProperty -Path $OOBERegPath -Name "HidePrivacySettings" -Value 1 -PropertyType DWORD -Force | Out-Null
     New-ItemProperty -Path $OOBERegPath -Name "SkipMachineOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
     New-ItemProperty -Path $OOBERegPath -Name "SkipUserOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
-    Log-Info "OOBE settings suppressed."
+    Write-Host "Windows Welcome Experience and Privacy Settings suppressed successfully!" -ForegroundColor Green
 } catch {
-    Log-Error "Failed to suppress Windows Welcome Experience: $_"
+    Write-Host "ERROR: Failed to suppress Windows Welcome Experience and Privacy Settings: $_" -ForegroundColor Red
 }
-
-# Set Keyboard Layout and Regional Settings (for Windows 10/11)
+# Set Keyboard Layout to German (DE)
 try {
-    Log-Info "Setting keyboard layout and regional settings to German (de-DE)..."
+    Write-Host "Setting keyboard layout to German (DE)..." -ForegroundColor Cyan
     Set-WinUILanguageOverride -Language de-DE
     Set-WinUserLanguageList -LanguageList de-DE -Force
     Set-WinSystemLocale -SystemLocale de-DE
     Set-Culture -CultureInfo de-DE
-    Set-WinHomeLocation -GeoId 94   # 94 corresponds to Germany
-    Log-Info "Keyboard layout and regional settings applied."
+    Set-WinHomeLocation -GeoId 94  # 94 corresponds to Germany
+    Write-Host "Keyboard layout set to German successfully!" -ForegroundColor Green
 } catch {
-    Log-Error "Failed to set keyboard layout/regional settings: $_"
+    Write-Host "ERROR: Failed to set keyboard layout: $_" -ForegroundColor Red
 }
-
-# Additional configuration for Windows Server 2025 may be applied here.
-# (For example, conditionally check OS version if needed)
-# $os = Get-CimInstance Win32_OperatingSystem
-# if ($os.Caption -match "Windows Server") {
-#     Log-Info "Detected Windows Server environment. Running server-specific configuration..."
-#     # Insert server-specific commands here
-# }
-
-# Disable LSASS Protection
 try {
-    Log-Info "Disabling LSASS Protection..."
-    $LSASSPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
-    Set-ItemProperty -Path $LSASSPath -Name "RunAsPPL" -Value 0 -Type DWord -Force
-    Log-Info "LSASS Protection disabled."
+     Write-Host "Disabling LSASS Protection..." -ForegroundColor Cyan
+       $LSASSPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+     Set-ItemProperty -Path $LSASSPath -Name "RunAsPPL" -Value 0 -Type DWord -Force
+    Write-Host "LSASS Protection disabled successfully!" -ForegroundColor Green
 } catch {
-    Log-Error "Failed to disable LSASS Protection: $_"
+     Write-Host "ERROR: Failed to disable LSASS Protection: $_" -ForegroundColor Red
+ }
+# Skip First Visit Welcome Screen (Privacy, Diagnostics, Find My Device)
+try {
+    Write-Host "Configuring OOBE settings to skip first-visit setup..." -ForegroundColor Cyan
+    $OOBEPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE"
+    New-ItemProperty -Path $OOBEPath -Name "DisablePrivacyExperience" -Value 1 -PropertyType DWORD -Force | Out-Null
+    New-ItemProperty -Path $OOBEPath -Name "SkipMachineOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
+    New-ItemProperty -Path $OOBEPath -Name "SkipUserOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
+    Write-Host "OOBE settings configured successfully!" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to configure OOBE settings: $_" -ForegroundColor Red
 }
-
-# Final Restart to Apply Changes
+# Restart System to Apply Entra ID Join & MDM Enrollment
 try {
     Log-Info "Creating marker file and restarting computer to complete setup..."
-    mkdir "C:\Users\joiner\Desktop\endofscriptreached" -ErrorAction SilentlyContinue
+    mkdir "C:\endofscriptreached" -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
     Restart-Computer -Force
 } catch {
     Log-Error "Failed to restart computer: $_"
 }
+Start-Sleep -Seconds 1
+Restart-Computer -Force
