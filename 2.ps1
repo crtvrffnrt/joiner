@@ -91,7 +91,6 @@ try {
     Write-Host "WARNING: Failed to update PowerShellGet/NuGet: $_" -ForegroundColor Yellow
 }
 
-Start-Sleep -Seconds 15
 # Create secure credentials
 try {
     # Ensure username, domain, and password are not null or empty
@@ -127,7 +126,7 @@ while ($RetryCount -lt $MaxRetries -and -not $ModuleInstalled) {
         Write-Host "AADInternals modules installed successfully!" -ForegroundColor Green
     } catch {
         Write-Host "WARNING: Failed to install AADInternals modules. Retrying... ($_)" -ForegroundColor Yellow
-        Start-Sleep -Seconds 5
+        Start-Sleep -Seconds 1
         $RetryCount++
     }
 }
