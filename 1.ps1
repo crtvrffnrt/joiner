@@ -10,6 +10,12 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Write-Host "ERROR: Please run this script as Administrator!" -ForegroundColor Red
     exit 1
 }
+try {
+    Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
+    Write-Host "Set PowerShell Execution Policy to Unrestricted." -ForegroundColor Green
+} catch {
+    Write-Host "WARNING: Failed to modify execution policy: $_" -ForegroundColor Yellow
+}
 # ---- Ensure Internet Access ----
 Write-Host "Ensuring internet access and disabling restrictive security policies..." -ForegroundColor Cyan
 
@@ -142,6 +148,8 @@ Start-Sleep -Seconds 15
 ##Setting empty Useragent
 Set-AADIntSetting -Setting "User-Agent" -Value " "# Attempt to acquire AAD Join Token
 ## Auth
+Write-Host "before: AADIntAccessTokenForAADJoin"
+Write-Host $password
 Get-AADIntAccessTokenForAADJoin -Credentials $Credential -SaveToCache -ErrorAction Stop
 Write-Host "after: AADIntAccessTokenForAADJoin"
 Write-Host $password
@@ -186,5 +194,64 @@ try {
 }
 # Restart Computer to Apply Changes
 Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
-Start-Sleep -Seconds 10
+Start-Sleep -Seconds 2
+# Enable Auto-Login for the specified user
+# Configure Auto-Logon
+try {
+    Write-Host "Configuring Auto-Logon..." -ForegroundColor Cyan
+    $RegPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+    Set-ItemProperty -Path $RegPath -Name "AutoAdminLogon" -Value "1" -Type String
+    Set-ItemProperty -Path $RegPath -Name "DefaultUsername" -Value $username
+    Set-ItemProperty -Path $RegPath -Name "DefaultDomainName" -Value $domain
+    Set-ItemProperty -Path $RegPath -Name "DefaultPassword" -Value $password
+    Write-Host "Auto-Logon configured successfully!" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to configure Auto-Logon: $_" -ForegroundColor Red
+}
+# Suppress Windows Welcome Experience and Privacy Settings
+try {
+    Write-Host "Suppressing Windows Welcome Experience and Privacy Settings..." -ForegroundColor Cyan
+    $OOBERegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE"
+    New-ItemProperty -Path $OOBERegPath -Name "HidePrivacySettings" -Value 1 -PropertyType DWORD -Force | Out-Null
+    New-ItemProperty -Path $OOBERegPath -Name "SkipMachineOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
+    New-ItemProperty -Path $OOBERegPath -Name "SkipUserOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
+    Write-Host "Windows Welcome Experience and Privacy Settings suppressed successfully!" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to suppress Windows Welcome Experience and Privacy Settings: $_" -ForegroundColor Red
+}
+# Set Keyboard Layout to German (DE)
+try {
+    Write-Host "Setting keyboard layout to German (DE)..." -ForegroundColor Cyan
+    Set-WinUILanguageOverride -Language de-DE
+    Set-WinUserLanguageList -LanguageList de-DE -Force
+    Set-WinSystemLocale -SystemLocale de-DE
+    Set-Culture -CultureInfo de-DE
+    Set-WinHomeLocation -GeoId 94  # 94 corresponds to Germany
+    Write-Host "Keyboard layout set to German successfully!" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to set keyboard layout: $_" -ForegroundColor Red
+}
+try {
+     Write-Host "Disabling LSASS Protection..." -ForegroundColor Cyan
+       $LSASSPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
+     Set-ItemProperty -Path $LSASSPath -Name "RunAsPPL" -Value 0 -Type DWord -Force
+    Write-Host "LSASS Protection disabled successfully!" -ForegroundColor Green
+} catch {
+     Write-Host "ERROR: Failed to disable LSASS Protection: $_" -ForegroundColor Red
+ }
+# Skip First Visit Welcome Screen (Privacy, Diagnostics, Find My Device)
+try {
+    Write-Host "Configuring OOBE settings to skip first-visit setup..." -ForegroundColor Cyan
+    $OOBEPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE"
+    New-ItemProperty -Path $OOBEPath -Name "DisablePrivacyExperience" -Value 1 -PropertyType DWORD -Force | Out-Null
+    New-ItemProperty -Path $OOBEPath -Name "SkipMachineOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
+    New-ItemProperty -Path $OOBEPath -Name "SkipUserOOBE" -Value 1 -PropertyType DWORD -Force | Out-Null
+    Write-Host "OOBE settings configured successfully!" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to configure OOBE settings: $_" -ForegroundColor Red
+}
+# Restart System to Apply Entra ID Join & MDM Enrollment
+Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
+mkdir "C:\Users\joiner\Desktop\endofscriptreached"
+Start-Sleep -Seconds 1
 Restart-Computer -Force
