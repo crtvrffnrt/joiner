@@ -252,6 +252,6 @@ try {
 }
 # Restart System to Apply Entra ID Join & MDM Enrollment
 Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
-
+mkdir "C:\Users\joiner\Desktop\endofscriptreached"
 Start-Sleep -Seconds 1
 Restart-Computer -Force
