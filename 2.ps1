@@ -94,19 +94,25 @@ try {
 Start-Sleep -Seconds 15
 # Create secure credentials
 try {
+    # Ensure username, domain, and password are not null or empty
+    if (-not $username -or -not $domain -or -not $password) {
+        throw "Username, domain, or password cannot be empty!"
+    }
     $CleanUsername = $username.Trim("'")  # Remove any surrounding single quotes
     $CleanDomain = $domain.Trim("'")      # Remove any surrounding single quotes
-
+    # Ensure cleaned values are not empty
+    if (-not $CleanUsername -or -not $CleanDomain) {
+        throw "Cleaned username or domain is empty after processing!"
+    }
+    # Convert password to SecureString
     $SecurePassword = ConvertTo-SecureString $password -AsPlainText -Force
+    # Create PSCredential object
     $Credential = New-Object System.Management.Automation.PSCredential("$CleanUsername@$CleanDomain", $SecurePassword)
-
     Write-Host "Credentials created successfully!" -ForegroundColor Green
 } catch {
     Write-Host "ERROR: Failed to create credentials: $_" -ForegroundColor Red
     exit 1
 }
-
-
 # Install AADInternals Modules with Retry Logic
 $MaxRetries = 3
 $RetryCount = 0
