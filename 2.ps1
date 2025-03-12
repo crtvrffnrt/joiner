@@ -4,30 +4,63 @@ param(
     [string]$password,
     [string]$RESOURCE_GROUP
 )
-Write-Host "neu"
-# Ensure PowerShell is running as Administrator
+
+# Logging Function (Define at the start)
+Function Write-Log {
+    param($Message)
+    $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $LogMessage = "$Timestamp - $Message"
+    Add-Content -Path "C:\setup_log.txt" -Value $LogMessage
+    Write-Host $LogMessage
+}
+
+# Start logging
+Write-Log "Script started with username: $username, domain: $domain, resource group: $RESOURCE_GROUP"
+
+# Check Administrator privileges
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Host "ERROR: Please run this script as Administrator!" -ForegroundColor Red
+    Write-Log "ERROR: Script must be run as Administrator"
     exit 1
 }
-try {
-    Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
-    Write-Host "Set PowerShell Execution Policy to Unrestricted." -ForegroundColor Green
-} catch {
-    Write-Host "WARNING: Failed to modify execution policy: $_" -ForegroundColor Yellow
-}
-# ---- Ensure Internet Access ----
-Write-Host "Ensuring internet access and disabling restrictive security policies..." -ForegroundColor Cyan
 
-# 1. Disable Internet Explorer Enhanced Security Configuration (ESC)
-try {
-    reg add "HKLM\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap" /v IEHarden /t REG_DWORD /d 0 /f
-    Write-Host "Disabled Internet Explorer Enhanced Security Configuration." -ForegroundColor Green
-} catch {
-    Write-Host "WARNING: Failed to disable IE Enhanced Security: $_" -ForegroundColor Yellow
+# Validate input parameters
+if ([string]::IsNullOrWhiteSpace($username) -or [string]::IsNullOrWhiteSpace($domain) -or [string]::IsNullOrWhiteSpace($password)) {
+    Write-Log "ERROR: Required parameters missing"
+    exit 1
 }
 
-# 2. Ensure outbound connections are allowed in Windows Firewall
+# ---- Initial Security Configuration ----
+Write-Log "Configuring initial security settings..."
+
+# Disable Internet Explorer Enhanced Security Configuration (ESC)
+try {
+    $ESCKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap"
+    if (-not (Test-Path $ESCKey)) {
+        New-Item -Path $ESCKey -Force | Out-Null
+    }
+    Set-ItemProperty -Path $ESCKey -Name "IEHarden" -Value 0 -Type DWord -Force
+    Write-Log "Successfully disabled IE Enhanced Security Configuration"
+} catch {
+    Write-Log "WARNING: Failed to disable IE Enhanced Security: $_"
+}
+
+# Configure Windows Firewall for outbound connections
+try {
+    if (-not (Get-NetFirewallRule -DisplayName "Allow Outbound Traffic" -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -DisplayName "Allow Outbound Traffic" -Direction Outbound -Action Allow -Protocol Any
+        Write-Log "Successfully added outbound firewall rule"
+    }
+} catch {
+    Write-Log "WARNING: Failed to configure firewall: $_"
+}
+
+# Set network profile to Private
+try {
+    Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction Stop
+    Write-Log "Successfully set network profile to Private"
+} catch {
+    Write-Log "WARNING: Failed to set network profile: $_"
+}
 try {
     New-NetFirewallRule -DisplayName "Allow Outbound Traffic" -Direction Outbound -Action Allow -Protocol Any -ErrorAction Stop
     Write-Host "Firewall rule added to allow all outbound traffic." -ForegroundColor Green
@@ -252,6 +285,6 @@ try {
 }
 # Restart System to Apply Entra ID Join & MDM Enrollment
 Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
-mkdir "C:\Users\joiner\Desktop\endofscriptreached"
+
 Start-Sleep -Seconds 1
 Restart-Computer -Force
