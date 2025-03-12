@@ -144,7 +144,10 @@ main() {
     --image "$IMAGE" \
     --admin-username "$ADMIN_USER" \
     --admin-password "$ADMIN_PASSWORD" \
+    --license-type Windows_Client\
+    --accept-term \
     --public-ip-sku Standard \
+    --size Standard_F4s_v2 \ 
     --nsg "$NSG_NAME"
     
     sleep 5
@@ -167,6 +170,10 @@ main() {
             sleep 30
         fi
     done
+    az vm auto-shutdown \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$VM_NAME" \
+    --time 1900
     sleep 5
     IP=$(az vm show --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" -d --query "publicIps" -o tsv)
     display_message "VM IP: $IP" "green"
