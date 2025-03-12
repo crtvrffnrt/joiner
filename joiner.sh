@@ -214,7 +214,37 @@ main() {
     sleep 15
     display_message "Waiting some time for reboot to complete..." "blue"
     az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --updated
-    sleep 10
+    sleep 120
+    az vm run-command invoke \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$VM_NAME" \
+    --command-id RunPowerShellScript \
+    --scripts '
+        param(
+            [string]$username,
+            [string]$domain,
+            [string]$password,
+            [string]$RESOURCE_GROUP
+        )
+        try {
+            $url = "https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/2.ps1"
+            $response = Invoke-WebRequest -Uri $url -UseBasicParsing
+            if ($response.StatusCode -ne 200) {
+                Write-Host "Failed to download script. HTTP Status: $($response.StatusCode)"
+                exit 1
+            }
+            $scriptContent = $response.Content
+            if (-not $scriptContent) {
+                Write-Host "Downloaded script content is empty."
+                exit 1
+            }
+            & ([scriptblock]::Create($scriptContent)) -username $username -domain $domain -password $password -RESOURCE_GROUP $RESOURCE_GROUP
+        } catch {
+            Write-Host "Error executing script: $_"
+            exit 1
+        }
+    ' \
+    --parameters "username=$username" "domain=$domain" "password=$password" "RESOURCE_GROUP=$RESOURCE_GROUP"
     display_message "Establishing SSH session to $VM_NAME..." "blue"
     sleep 5
     display_message "Your Windows VM has been created successfully! and is currently restarting" "green"
