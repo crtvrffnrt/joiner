@@ -157,51 +157,45 @@ try {
 Start-Sleep -Seconds 15
 ##Setting empty Useragent
 Set-AADIntSetting -Setting "User-Agent" -Value " "# Attempt to acquire AAD Join Token
-## Auth
-Write-Host "before: AADIntAccessTokenForAADJoin"
-Write-Host $password
-Get-AADIntAccessTokenForAADJoin -Credentials $Credential -SaveToCache -ErrorAction Stop
-Write-Host "after: AADIntAccessTokenForAADJoin"
-Write-Host $password
-Start-Sleep -Seconds 5
+## Get-AADIntAccessTokenForAADJoin -Credentials $Credential -SaveToCache -ErrorAction Stop
+
 # Register Device to Azure AD
-# --- Replace this block in your script ---
-$maxRetries = 5
-$delaySeconds = 20
-$registered = $false
-for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
-    Write-Host "Registering device to Azure AD (Attempt: $attempt/$maxRetries)..." -ForegroundColor Cyan
-    try {
-        $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "Windows" -OSVersion "2025" -JoinType Join -ErrorAction Stop
-        Write-Host "Device Joined to EntraId successfully! Device ID: $($DeviceInfo.DeviceId)" -ForegroundColor Green
-        $registered = $true
-        break
-    } catch {
-        Write-Host "ERROR: Failed to register device to Azure AD (Attempt $attempt): $_" -ForegroundColor Red
-        if ($attempt -lt $maxRetries) {
-            Write-Host "Waiting $delaySeconds seconds before retrying..." -ForegroundColor Yellow
-            Start-Sleep -Seconds $delaySeconds
-        }
-    }
-}
-if (-not $registered) {
-    Write-Host "ERROR: All attempts to register the device have failed. Exiting..." -ForegroundColor Red
-    exit 1
-}
-Get-AADIntCache > C:\to.json
+## $maxRetries = 5
+## $delaySeconds = 20
+## $registered = $false
+## for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+##     Write-Host "Registering device to Azure AD (Attempt: $attempt/$maxRetries)..." -ForegroundColor Cyan
+##     try {
+##         $DeviceInfo = Join-AADIntDeviceToAzureAD -DeviceName $RESOURCE_GROUP -DeviceType "Windows" -OSVersion "2025" -JoinType Join -ErrorAction Stop
+##         Write-Host "Device Joined to EntraId successfully! Device ID: $($DeviceInfo.DeviceId)" -ForegroundColor Green
+##         $registered = $true
+##         break
+##     } catch {
+##         Write-Host "ERROR: Failed to register device to Azure AD (Attempt $attempt): $_" -ForegroundColor Red
+##         if ($attempt -lt $maxRetries) {
+##             Write-Host "Waiting $delaySeconds seconds before retrying..." -ForegroundColor Yellow
+##             Start-Sleep -Seconds $delaySeconds
+##         }
+##     }
+## }
+## if (-not $registered) {
+##     Write-Host "ERROR: All attempts to register the device have failed. Exiting..." -ForegroundColor Red
+##     exit 1
+## }
+## Get-AADIntCache > C:\to.json
 # --- End of replacement snippet ---
 # Attempt to export the Refresh Token
 # Configure Registry for MDM Enrollment
-try {
-    Write-Host "Configuring MDM Enrollment Registry Keys..." -ForegroundColor Cyan
-    $MDMRegPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM"
-    New-Item -Path $MDMRegPath -Force -ErrorAction Stop | Out-Null
-    New-ItemProperty -Path $MDMRegPath -Name "AutoEnrollMDM" -Value 1 -PropertyType DWORD -Force | Out-Null
-    New-ItemProperty -Path $MDMRegPath -Name "UseAADCredentialType" -Value 1 -PropertyType DWORD -Force | Out-Null
-    Write-Host "MDM Enrollment registry keys configured successfully!" -ForegroundColor Green
-} catch {
-    Write-Host "ERROR: Failed to configure MDM registry keys: $_" -ForegroundColor Red
-}
+## try {
+##     Write-Host "Configuring MDM Enrollment Registry Keys..." -ForegroundColor Cyan
+##     $MDMRegPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM"
+##     New-Item -Path $MDMRegPath -Force -ErrorAction Stop | Out-Null
+##     New-ItemProperty -Path $MDMRegPath -Name "AutoEnrollMDM" -Value 1 -PropertyType DWORD -Force | Out-Null
+##     New-ItemProperty -Path $MDMRegPath -Name "UseAADCredentialType" -Value 1 -PropertyType DWORD -Force | Out-Null
+##     Write-Host "MDM Enrollment registry keys configured successfully!" -ForegroundColor Green
+## } catch {
+##     Write-Host "ERROR: Failed to configure MDM registry keys: $_" -ForegroundColor Red
+## }
 # Restart Computer to Apply Changes
 Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
 Start-Sleep -Seconds 2
@@ -249,6 +243,7 @@ try {
 } catch {
      Write-Host "ERROR: Failed to disable LSASS Protection: $_" -ForegroundColor Red
  }
+# Ski
 # Skip First Visit Welcome Screen (Privacy, Diagnostics, Find My Device)
 try {
     Write-Host "Configuring OOBE settings to skip first-visit setup..." -ForegroundColor Cyan
@@ -269,5 +264,3 @@ try {
 } catch {
     Log-Error "Failed to restart computer: $_"
 }
-Start-Sleep -Seconds 1
-Restart-Computer -Force
