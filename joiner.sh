@@ -1,6 +1,4 @@
-
 #!/bin/bash
-
 display_message() {
     local message="$1"
     local color="$2"
@@ -144,11 +142,7 @@ main() {
     --image "$IMAGE" \
     --admin-username "$ADMIN_USER" \
     --admin-password "$ADMIN_PASSWORD" \
-    --license-type Windows_Client\
-    --accept-term \
-    --public-ip-sku Standard \
-    --size Standard_F4s_v2 \ 
-    --nsg "$NSG_NAME"
+    --license-type Windows_Client --accept-term --public-ip-sku Standard --size Standard_F4s_v2  --nsg "$NSG_NAME"
     
     sleep 5
     display_message "Waiting for VM provisioning..." "blue"
@@ -212,41 +206,17 @@ main() {
     ' \
     --parameters "username=$username" "domain=$domain" "password=$password" "RESOURCE_GROUP=$RESOURCE_GROUP"
     sleep 15
+    az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --custom "instanceView.statuses[?code=='PowerState/running']" --timeout 300
+    az vm extension set \
+  --resource-group "$RESOURCE_GROUP" \
+  --vm-name "$VM_NAME" \
+  --name CustomScriptExtension \
+  --publisher Microsoft.Compute \
+  --settings '{"fileUris": ["https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/2.ps1"], "commandToExecute": "powershell -ExecutionPolicy Unrestricted -File 2.ps1 -username '"$username"' -domain '"$domain"' -password '"$password"' -RESOURCE_GROUP '"$RESOURCE_GROUP"'"}'
     display_message "Waiting some time for reboot to complete..." "blue"
-    az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --updated
-    sleep 120
-    az vm run-command invoke \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$VM_NAME" \
-    --command-id RunPowerShellScript \
-    --scripts '
-        param(
-            [string]$username,
-            [string]$domain,
-            [string]$password,
-            [string]$RESOURCE_GROUP
-        )
-        try {
-            $url = "https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/2.ps1"
-            $response = Invoke-WebRequest -Uri $url -UseBasicParsing
-            if ($response.StatusCode -ne 200) {
-                Write-Host "Failed to download script. HTTP Status: $($response.StatusCode)"
-                exit 1
-            }
-            $scriptContent = $response.Content
-            if (-not $scriptContent) {
-                Write-Host "Downloaded script content is empty."
-                exit 1
-            }
-            & ([scriptblock]::Create($scriptContent)) -username $username -domain $domain -password $password -RESOURCE_GROUP $RESOURCE_GROUP
-        } catch {
-            Write-Host "Error executing script: $_"
-            exit 1
-        }
-    ' \
-    --parameters "username=$username" "domain=$domain" "password=$password" "RESOURCE_GROUP=$RESOURCE_GROUP"
-    display_message "Establishing SSH session to $VM_NAME..." "blue"
-    sleep 5
+    az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --custom "instanceView.statuses[?code=='PowerState/running']" --timeout 300
+    az vm restart --resource-group "$RESOURCE_GROUP" --name "$VM_NAME"
+    az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --custom "instanceView.statuses[?code=='PowerState/running']" --timeout 300
     display_message "Your Windows VM has been created successfully! and is currently restarting" "green"
     echo "Connect to your VM using the following details:"
     echo "Public IP: $IP"
@@ -257,20 +227,14 @@ main() {
     echo "cmdkey /generic:\"$IP\" /user:\"$ADMIN_USER\" /pass:\"$ADMIN_PASSWORD\"; mstsc /v:$IP"
     echo "xfreerdp /v:$IP /u:$ADMIN_USER /p:\"$ADMIN_PASSWORD\" /cert:ignore"
     echo "sshpass -p \"$ADMIN_PASSWORD\" ssh -o StrictHostKeyChecking=no \"$ADMIN_USER@$IP\""
-    sleep 120
-    az vm run-command invoke \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$VM_NAME" \
-    --command-id RunPowerShellScript \
-    --scripts "Get-Content -Path 'C:\to.json' -Raw" > ./to.json
-    display_message "SSH Into"
+    echo "evil-winrm  -i $IP -u $ADMIN_USER -p \"$ADMIN_PASSWORD\" -P 5985"
     read -p "Do you want to connect via SSH or xfreerdp? (ssh/rdp): " connection_choice
     if [[ "$connection_choice" == "ssh" ]]; then
         display_message "Connecting via SSH..." "blue"
         sshpass -p "$ADMIN_PASSWORD" ssh -o StrictHostKeyChecking=no "$ADMIN_USER@$IP"
         elif [[ "$connection_choice" == "rdp" ]]; then
         display_message "Connecting via xfreerdp..." "blue"
-        xfreerdp /v:"$IP" /u:"$ADMIN_USER" /p:"$ADMIN_PASSWORD" /cert:ignore
+        /usr/bin/xfreerdp3 /v:"$IP" /u:"$ADMIN_USER" /p:"$ADMIN_PASSWORD" /cert:ignore
     else
         display_message "Invalid choice. Exiting." "red"
         exit 1
