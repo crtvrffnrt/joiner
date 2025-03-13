@@ -197,8 +197,34 @@ Set-AADIntSetting -Setting "User-Agent" -Value " "# Attempt to acquire AAD Join 
 ##     Write-Host "ERROR: Failed to configure MDM registry keys: $_" -ForegroundColor Red
 ## }
 # Restart Computer to Apply Changes
-Write-Host "Restarting computer to complete Azure AD Join & MDM Enrollment..." -ForegroundColor Cyan
-Start-Sleep -Seconds 2
+# -----------------------------
+# Enable WinRM HTTPS Listener
+# -----------------------------
+try {
+    Write-Host "Enabling WinRM HTTPS listener on port 5986..." -ForegroundColor Cyan
+
+    Enable-PSRemoting -Force -SkipNetworkProfileCheck
+
+    # Check for an existing HTTPS listener; if none, create one
+    $httpsListener = Get-ChildItem WSMan:\localhost\Listener | Where-Object { $_.Keys["Transport"] -eq "HTTPS" }
+    if (-not $httpsListener) {
+        $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
+        New-Item -Path WSMan:\localhost\Listener -Transport HTTPS -Address * -Port 5986 -CertificateThumbPrint $cert.Thumbprint -Force
+        Write-Host "HTTPS listener created on port 5986." -ForegroundColor Green
+    } else {
+        Write-Host "HTTPS listener already exists." -ForegroundColor Yellow
+    }
+
+    # Add firewall rule for HTTPS WinRM
+    if (-not (Get-NetFirewallRule -DisplayName "WinRM HTTPS" -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -Name "WinRM HTTPS" -DisplayName "WinRM HTTPS" -Enabled True -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow
+        Write-Host "Firewall rule for WinRM HTTPS added." -ForegroundColor Green
+    } else {
+        Write-Host "Firewall rule for WinRM HTTPS already exists." -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "ERROR: Failed to enable WinRM HTTPS listener: $_" -ForegroundColor Red
+}
 # Enable Auto-Login for the specified user
 # Configure Auto-Logon
 try {
