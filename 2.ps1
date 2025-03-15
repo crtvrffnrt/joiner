@@ -233,22 +233,18 @@ try {
     Write-Host "ERROR: Failed to enable WinRM HTTPS listener: $_" -ForegroundColor Red
 }
 
-# Suppress Windows Welcome Experience and Privacy Settings
-try {
-$Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-File C:\Scripts\PostBoot.ps1"
-$Trigger = New-ScheduledTaskTrigger -AtLogOn
-Register-ScheduledTask -TaskName "PostBootConfig" -Action $Action -Trigger $Trigger -RunLevel Highest -Force
-Write-Host "Scheduled PostBootConfig task to apply settings after user login."
-
-} catch {
-    Write-Host "ERROR: Failed to suppress Windows Welcome Experience and Privacy Settings: $_" -ForegroundColor Red
-}
 # Set Keyboard Layout to German (DE)
 try {
     Write-Host "Setting keyboard layout to German (DE)..." -ForegroundColor Cyan
-   Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Nls\Language" -Name InstallLanguage -Value "0407"
-   Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Nls\Language" -Name Default -Value "de-DE"
-   Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\International\User Profile" -Name "Languages" -Value "de-DE"
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Nls\Language" -Name InstallLanguage -Value "0407"
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Nls\Language" -Name Default -Value "de-DE"
+    
+    $RegistryPath = "HKLM:\SYSTEM\CurrentControlSet\Control\International\User Profile"
+    if (!(Test-Path $RegistryPath)) {
+        New-Item -Path $RegistryPath -Force
+    }
+    Set-ItemProperty -Path $RegistryPath -Name "Languages" -Value "de-DE"
+    
     Write-Host "Keyboard layout set to German successfully!" -ForegroundColor Green
 } catch {
     Write-Host "ERROR: Failed to set keyboard layout: $_" -ForegroundColor Red
