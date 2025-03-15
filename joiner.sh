@@ -10,7 +10,7 @@ display_message() {
         *) echo "$message" ;;
     esac
 }
-
+export PYTHONWARNINGS="ignore::FutureWarning"
 check_azure_authentication() {
     az account show &> /dev/null
     if [ $? -ne 0 ]; then
