@@ -225,7 +225,7 @@ main() {
     echo "Ports open: RDP (3389), SSH (22), WinRM (5985/5986)"
     echo
     echo "cmdkey /generic:\"$IP\" /user:\"$ADMIN_USER\" /pass:\"$ADMIN_PASSWORD\"; mstsc /v:$IP"
-    echo "xfreerdp /v:$IP /u:$ADMIN_USER /p:\"$ADMIN_PASSWORD\" /cert:ignore"
+    echo "xfreerdp /v:$IP /u:$ADMIN_USER /p:\"$ADMIN_PASSWORD\" /cert:ignore /cert:ignore /dynamic-resolution /clipboard /drive:joiner,./ /admin"
     echo "sshpass -p \"$ADMIN_PASSWORD\" ssh -o StrictHostKeyChecking=no \"$ADMIN_USER@$IP\""
     echo "evil-winrm  -i $IP -u $ADMIN_USER -p \"$ADMIN_PASSWORD\" -P 5985"
     read -p "Do you want to connect via SSH or xfreerdp? (ssh/rdp): " connection_choice
@@ -234,7 +234,7 @@ main() {
         sshpass -p "$ADMIN_PASSWORD" ssh -o StrictHostKeyChecking=no "$ADMIN_USER@$IP"
         elif [[ "$connection_choice" == "rdp" ]]; then
         display_message "Connecting via xfreerdp..." "blue"
-        /usr/bin/xfreerdp3 /v:"$IP" /u:"$ADMIN_USER" /p:"$ADMIN_PASSWORD" /cert:ignore
+        /usr/bin/xfreerdp3 /v:"$IP" /u:"$ADMIN_USER" /p:"$ADMIN_PASSWORD" /cert:ignore /dynamic-resolution /clipboard /drive:joiner,./ /admin
     else
         display_message "Invalid choice. Exiting." "red"
         exit 1
