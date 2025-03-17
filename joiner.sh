@@ -188,7 +188,7 @@ main() {
             [string]$RESOURCE_GROUP
         )
         try {
-            $url = "https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/2.ps1"
+            $url = "https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/3.ps1"
             $response = Invoke-WebRequest -Uri $url -UseBasicParsing
             if ($response.StatusCode -ne 200) {
                 Write-Host "Failed to download script. HTTP Status: $($response.StatusCode)"
@@ -213,7 +213,7 @@ main() {
   --vm-name "$VM_NAME" \
   --name CustomScriptExtension \
   --publisher Microsoft.Compute \
-  --settings '{"fileUris": ["https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/2.ps1"], "commandToExecute": "powershell -ExecutionPolicy Unrestricted -File 2.ps1 -username '"$username"' -domain '"$domain"' -password '"$password"' -RESOURCE_GROUP '"$RESOURCE_GROUP"'"}'
+  --settings '{"fileUris": ["https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/1.ps1"], "commandToExecute": "powershell -ExecutionPolicy Unrestricted -File 1.ps1 -username '"$username"' -domain '"$domain"' -password '"$password"' -RESOURCE_GROUP '"$RESOURCE_GROUP"'"}'
     display_message "Waiting some time for reboot to complete..." "blue"
     az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --custom "instanceView.statuses[?code=='PowerState/running']" --timeout 300
     az vm restart --resource-group "$RESOURCE_GROUP" --name "$VM_NAME"
