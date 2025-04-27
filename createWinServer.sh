@@ -143,41 +143,41 @@ main() {
 
     wait_for_vm_to_be_running "$RESOURCE_GROUP" "$VM_NAME"
 
-    # Auto Shutdown every night at 23:00 German Time (21:00 UTC approx)
-    display_message "Setting auto-shutdown at 23:00 German time (21:00 UTC)..." "blue"
-    az vm auto-shutdown --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --time 2100 --time-zone "W. Europe Standard Time"
+    display_message "Waiting 60 seconds for VM services to stabilize..." "yellow"
+    sleep 60
 
-    # Install Pentest Tools Script (2.ps1)
-    display_message "Deploying pentest setup script (2.ps1)..." "blue"
-    az vm run-command invoke \
+    display_message "Deploying pentest setup script (2.ps1) using CustomScriptExtension..." "blue"
+    az vm extension set \
     --resource-group "$RESOURCE_GROUP" \
-    --name "$VM_NAME" \
-    --command-id RunPowerShellScript \
-    --scripts '
-        try {
-            $url = "https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/2.ps1"
-            $response = Invoke-WebRequest -Uri $url -UseBasicParsing
-            if ($response.StatusCode -ne 200) {
-                Write-Host "Failed to download script. HTTP Status: $($response.StatusCode)"
-                exit 1
-            }
-            $scriptContent = $response.Content
-            & ([scriptblock]::Create($scriptContent))
-        } catch {
-            Write-Host "Error executing script: $_"
-            exit 1
-        }
-    '
+    --vm-name "$VM_NAME" \
+    --name CustomScriptExtension \
+    --publisher Microsoft.Compute \
+    --settings '{"fileUris": ["https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/2.ps1"], "commandToExecute": "powershell -ExecutionPolicy Unrestricted -File 2.ps1"}'
 
-    wait_for_vm_to_be_running "$RESOURCE_GROUP" "$VM_NAME"
+    display_message "Waiting 120 seconds for script execution and potential auto-reboot..." "yellow"
+    sleep 120
+
+    display_message "Restarting the VM after setup script execution..." "blue"
+    az vm restart --resource-group "$RESOURCE_GROUP" --name "$VM_NAME"
+
+    display_message "Waiting for VM to become available after reboot..." "blue"
+    az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --custom "instanceView.statuses[?code=='PowerState/running']" --timeout 300
 
     IP=$(az vm show --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" -d --query "publicIps" -o tsv)
 
     display_message "Connection Details:" "green"
+    echo
+    echo "Connect to your VM using the following details:"
     echo "Public IP: $IP"
     echo "Username: $ADMIN_USER"
-    echo "Password: $ADMIN_PASSWORD"
-    echo "Hostname: $VM_NAME"
+    echo "Allowed IP range: $allowed_ip"
+    echo "Ports open: RDP (3389), SSH (22), WinRM (5985/5986)"
+    echo
+    echo "Copyable connection commands:"
+    echo "cmdkey /generic:\"$IP\" /user:\"$ADMIN_USER\" /pass:\"$ADMIN_PASSWORD\"; mstsc /v:$IP"
+    echo "xfreerdp /v:$IP /u:$ADMIN_USER /p:\"$ADMIN_PASSWORD\" /cert:ignore /dynamic-resolution /clipboard /drive:joiner,./ /admin"
+    echo "sshpass -p \"$ADMIN_PASSWORD\" ssh -o StrictHostKeyChecking=no \"$ADMIN_USER@$IP\""
+    echo "evil-winrm -i $IP -u $ADMIN_USER -p \"$ADMIN_PASSWORD\" -P 5985"
     echo
 
     read -p "Connect via (ssh/rdp/evilwinrm)? " connection_choice
@@ -195,5 +195,6 @@ main() {
         exit 1
     fi
 }
+
 
 main "$@"
