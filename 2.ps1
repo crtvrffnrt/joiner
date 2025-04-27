@@ -52,6 +52,13 @@ try {
 }
 
 try {
+    Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+    Log-Info "Disabled Windows Firewall for all profiles."
+} catch {
+    Log-Error "Failed to disable Windows Firewall: $_"
+}
+
+try {
     Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
     Log-Info "Network profile set to Private."
 } catch {
@@ -121,9 +128,19 @@ try {
 }
 #endregion
 
+#region Desktop Background Adjustment
+try {
+    Set-ItemProperty -Path "HKCU:\Control Panel\Colors" -Name "Background" -Value "0 0 0"
+    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "Wallpaper" -Value ""
+    RUNDLL32.EXE user32.dll,UpdatePerUserSystemParameters
+    Log-Info "Set desktop background to solid black for current user."
+} catch {
+    Log-Error "Failed to set desktop background: $_"
+}
+#endregion
+
 #region Tool Installation Section
 try {
-    # Install Winget
     if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
         Invoke-WebRequest -Uri https://aka.ms/getwinget -OutFile C:\winget.msixbundle
         Add-AppxPackage -Path C:\winget.msixbundle
@@ -132,33 +149,24 @@ try {
         Log-Info "Winget already installed."
     }
 
-    # Install Git, Python, Visual Studio Build Tools
     winget install --id Git.Git -e --accept-source-agreements --accept-package-agreements
     winget install --id Python.Python.3 -e --accept-source-agreements --accept-package-agreements
     winget install --id Microsoft.VisualStudio.2022.BuildTools -e --accept-source-agreements --accept-package-agreements
     Log-Info "Installed Git, Python, and VS Build Tools."
 
-    # Install Roadtools
     pip install roadtools
 
-    # Install PowerShell Modules
     Install-Module -Name AADInternals -Force -Scope CurrentUser
     Install-Module -Name Microsoft.Graph -Scope CurrentUser -Force
     Install-Module -Name AzureAD -Force -Scope CurrentUser
     Install-Module -Name AzureAD.Standard.Preview -Force -Scope CurrentUser
     Install-Module -Name MSOnline -Force -Scope CurrentUser
 
-    # Clone GraphRunner
     git clone https://github.com/NetSPI/GraphRunner.git C:\Tools\GraphRunner
     Import-Module C:\Tools\GraphRunner\GraphRunner.psm1
 
-    # Clone AzureHound
     git clone https://github.com/BloodHoundAD/AzureHound.git C:\Tools\AzureHound
-
-    # Clone Certify
     git clone https://github.com/GhostPack/Certify.git C:\Tools\Certify
-
-    # Clone Rubeus
     git clone https://github.com/GhostPack/Rubeus.git C:\Tools\Rubeus
 
     Log-Info "Downloaded and installed major Azure/M365 pentesting tools."
