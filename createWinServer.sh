@@ -146,55 +146,67 @@ main() {
     display_message "Waiting 60 seconds for VM services to stabilize..." "yellow"
     sleep 60
 
-    display_message "Deploying pentest setup script (2.ps1) using CustomScriptExtension..." "blue"
+    ### --- Deploy 21.ps1 First ---
+    display_message "Deploying 21.ps1 (initial Defender exclusion)..." "blue"
     az vm extension set \
     --resource-group "$RESOURCE_GROUP" \
     --vm-name "$VM_NAME" \
     --name CustomScriptExtension \
     --publisher Microsoft.Compute \
-    --settings '{"fileUris": ["https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/2.ps1"], "commandToExecute": "powershell -ExecutionPolicy Unrestricted -File 2.ps1"}'
+    --settings '{"fileUris": ["https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/21.ps1"], "commandToExecute": "powershell -ExecutionPolicy Unrestricted -File 21.ps1"}'
 
-    display_message "Waiting 120 seconds for script execution and potential auto-reboot..." "yellow"
-    sleep 120
+    display_message "Waiting 60 seconds after running 21.ps1..." "yellow"
+    sleep 60
 
-    display_message "Restarting the VM after setup script execution..." "blue"
+    ### --- Deploy 22.ps1 After ---
+    display_message "Deploying 22.ps1 (full setup)..." "blue"
+    az vm extension set \
+    --resource-group "$RESOURCE_GROUP" \
+    --vm-name "$VM_NAME" \
+    --name CustomScriptExtension \
+    --publisher Microsoft.Compute \
+    --settings '{"fileUris": ["https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/22.ps1"], "commandToExecute": "powershell -ExecutionPolicy Unrestricted -File 22.ps1"}'
+
+    display_message "Waiting 180 seconds for full script execution..." "yellow"
+    sleep 180
+
+    ### --- Ensure Hostname Correct and Restart if Needed ---
+    display_message "Ensuring correct hostname and checking restart status..." "blue"
+    HOSTNAME_VM=$(az vm get-instance-view --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --query "computerName" -o tsv)
+
+    if [[ "$HOSTNAME_VM" == "$VM_NAME" ]]; then
+        display_message "Hostname is correct: $HOSTNAME_VM" "green"
+    else
+        display_message "Warning: Hostname mismatch! Expected $VM_NAME but found $HOSTNAME_VM" "red"
+    fi
+
+    # Final reboot if not already pending
+    display_message "Issuing final VM reboot..." "blue"
     az vm restart --resource-group "$RESOURCE_GROUP" --name "$VM_NAME"
 
-    display_message "Waiting for VM to become available after reboot..." "blue"
+    display_message "Waiting for VM to come back online..." "yellow"
     az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --custom "instanceView.statuses[?code=='PowerState/running']" --timeout 300
 
     IP=$(az vm show --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" -d --query "publicIps" -o tsv)
 
     display_message "Connection Details:" "green"
     echo
-    echo "Connect to your VM using the following details:"
     echo "Public IP: $IP"
     echo "Username: $ADMIN_USER"
-    echo "Allowed IP range: $allowed_ip"
-    echo "Ports open: RDP (3389), SSH (22), WinRM (5985/5986)"
-    echo
-    echo "Copyable connection commands:"
-    echo "cmdkey /generic:\"$IP\" /user:\"$ADMIN_USER\" /pass:\"$ADMIN_PASSWORD\"; mstsc /v:$IP"
-    echo "xfreerdp /v:$IP /u:$ADMIN_USER /p:\"$ADMIN_PASSWORD\" /cert:ignore /dynamic-resolution /clipboard /drive:joiner,./ /admin"
-    echo "sshpass -p \"$ADMIN_PASSWORD\" ssh -o StrictHostKeyChecking=no \"$ADMIN_USER@$IP\""
-    echo "evil-winrm -i $IP -u $ADMIN_USER -p \"$ADMIN_PASSWORD\" -P 5985"
+    echo "Password: $ADMIN_PASSWORD"
     echo
 
     read -p "Connect via (ssh/rdp/evilwinrm)? " connection_choice
     if [[ "$connection_choice" == "ssh" ]]; then
-        display_message "Connecting via SSH..." "blue"
         sshpass -p "$ADMIN_PASSWORD" ssh -o StrictHostKeyChecking=no "$ADMIN_USER@$IP"
     elif [[ "$connection_choice" == "rdp" ]]; then
-        display_message "Connecting via RDP (xfreerdp3)..." "blue"
         /usr/bin/xfreerdp3 /v:"$IP" /u:"$ADMIN_USER" /p:"$ADMIN_PASSWORD" /cert:ignore /dynamic-resolution /clipboard /drive:joiner,./ /admin
     elif [[ "$connection_choice" == "evilwinrm" ]]; then
-        display_message "Connecting via Evil-WinRM..." "blue"
         evil-winrm -i "$IP" -u "$ADMIN_USER" -p "$ADMIN_PASSWORD"
     else
         display_message "Invalid choice. Exiting." "red"
         exit 1
     fi
 }
-
 
 main "$@"
