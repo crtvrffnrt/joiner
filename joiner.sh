@@ -143,7 +143,7 @@ main() {
     --image "$IMAGE" \
     --admin-username "$ADMIN_USER" \
     --admin-password "$ADMIN_PASSWORD" \
-    --license-type Windows_Client --accept-term --public-ip-sku Standard --size Standard_F4s_v2  --nsg "$NSG_NAME"
+    --license-type Windows_Client --accept-term --security-type Standard --public-ip-sku Standard --size Standard_F4s  --nsg "$NSG_NAME" 
     
     sleep 5
     display_message "Waiting for VM provisioning..." "blue"
