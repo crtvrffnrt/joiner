@@ -146,6 +146,14 @@ main() {
     --license-type Windows_Client --accept-term --security-type Standard --public-ip-sku Standard --size Standard_F4s  --nsg "$NSG_NAME" 
     
     sleep 5
+    display_message "Enabling Microsoft Entra ID login on the VM..." "blue"
+    az vm extension set \
+  --resource-group "$RESOURCE_GROUP" \
+  --vm-name "$VM_NAME" \
+  --name AADLoginForWindows \
+  --publisher Microsoft.Azure.ActiveDirectory \
+  --version 1.0 \
+  --no-wait
     display_message "Waiting for VM provisioning..." "blue"
     az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --created
     display_message "Waiting for VM Agent to reach Ready state..." "blue"
