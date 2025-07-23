@@ -122,8 +122,8 @@ main() {
     ADMIN_USER="joiner"
     ADMIN_PASSWORD=$(generate_random_password)
     ##IMAGE="MicrosoftWindowsServer:WindowsServer:2025-datacenter-azure-edition:latest"
-    ##IMAGE="MicrosoftWindowsDesktop:Windows-10:win10-22h2-pro:latest"
-    IMAGE="MicrosoftWindowsDesktop:windows-11:win11-24h2-ent:latest"
+    IMAGE="MicrosoftWindowsDesktop:Windows-10:win10-22h2-pro:latest" ## Gen1 for no TPM
+    ##IMAGE="MicrosoftWindowsDesktop:windows-11:win11-24h2-ent:latest"
     NSG_NAME="${VM_NAME}-nsg"
     
     display_message "Creating Resource Group..." "blue"
