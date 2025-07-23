@@ -19,6 +19,19 @@ check_azure_authentication() {
     fi
 }
 
+check_security_type_feature() {
+    local feature_state
+    feature_state=$(az feature show --namespace "Microsoft.Compute" --name "UseStandardSecurityType" --query "properties.state" -o tsv 2>/dev/null)
+
+    if [[ "$feature_state" != "Registered" ]]; then
+        echo "The feature 'Microsoft.Compute/UseStandardSecurityType' is not registered. Registering now..." "yellow"
+        az feature register --namespace "Microsoft.Compute" --name "UseStandardSecurityType"
+        echo "Feature registration initiated. This may take several minutes to complete." "yellow"
+        echo "You must rerun the script once registration is complete." "red"
+        exit 1
+    else echo "The Feaute UseStandardSecurityType is aleardy registered";
+    fi
+}
 delete_old_resource_groups() {
     az group list --query "[?starts_with(name, 'thiefjoinerRGDeleteme')].name" -o tsv | while read -r group; do
         az group delete --name "$group" --yes --no-wait &> /dev/null
@@ -135,7 +148,8 @@ main() {
     
     configure_nsg_rules "$NSG_NAME" "$RESOURCE_GROUP" "$allowed_ip"
     sleep 15
-    
+    check_security_type_feature
+    sleep 5
     display_message "Creating Windows Server VM with password authentication..." "blue"
     az vm create \
     --resource-group "$RESOURCE_GROUP" \
