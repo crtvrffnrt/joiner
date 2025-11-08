@@ -1,266 +1,535 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PYTHONWARNINGS="ignore::FutureWarning"
+
+readonly DEFAULT_LOCATION="germanywestcentral"
+readonly DEFAULT_VM_SIZE="Standard_B4s_v2"
+readonly DEFAULT_IMAGE="MicrosoftWindowsDesktop:windows11preview:win11-25h2-ent-cpc-m365:latest"
+readonly ADMIN_USERNAME="joiner"
+readonly RG_PREFIX="thiefjoinerRGDeleteme"
+readonly AUTO_SHUTDOWN_TIME="1900"
+readonly FEATURE_NAMESPACE="Microsoft.Compute"
+readonly FEATURE_NAME="UseStandardSecurityType"
+
+RESOURCE_GROUP=""
+VM_NAME=""
+NSG_NAME=""
+PUBLIC_IP=""
+ADMIN_PASSWORD=""
+SCRIPT_SUCCESS=false
+
+PROMPT_FOR_CONNECTION=true
+CLEANUP_STALE_GROUPS=true
+DELETE_FAILED_RG=true
+LOCATION="$DEFAULT_LOCATION"
+VM_SIZE="$DEFAULT_VM_SIZE"
+VM_IMAGE="$DEFAULT_IMAGE"
+
+usage() {
+    cat <<'EOF'
+Usage: ./joiner.sh -r <allowed-ip/cidr> -u <entra-user> -d <entra-domain> -p <entra-password> [options]
+
+Required
+  -r, --range        CIDR or single IP allowed inbound through the NSG
+  -u, --user         Entra ID username (e.g. john.doe@contoso.com)
+  -d, --domain       Entra ID domain (e.g. contoso.com)
+  -p, --password     Entra ID password (plaintext)
+
+Optional
+      --location     Azure location (default: germanywestcentral)
+      --vm-size      Azure VM SKU (default: Standard_F4s)
+      --image        Azure image URN (default: Win11 25H2 CPC M365)
+      --keep-old     Skip deleting previously created thiefjoinerRGDeleteme* groups
+      --keep-on-fail Keep the newly created resource group when the script fails
+      --no-connect   Do not offer an interactive SSH/RDP connection at the end
+  -h, --help         Show this help and exit
+EOF
+}
+
 display_message() {
     local message="$1"
-    local color="$2"
-    case $color in
-        red) echo -e "\033[91m${message}\033[0m" ;;
-        green) echo -e "\033[92m${message}\033[0m" ;;
-        yellow) echo -e "\033[93m${message}\033[0m" ;;
-        blue) echo -e "\033[94m${message}\033[0m" ;;
-        *) echo "$message" ;;
+    local color="${2:-}"
+    case "$color" in
+        red) printf '\033[91m%s\033[0m\n' "$message" ;;
+        green) printf '\033[92m%s\033[0m\n' "$message" ;;
+        yellow) printf '\033[93m%s\033[0m\n' "$message" ;;
+        blue) printf '\033[94m%s\033[0m\n' "$message" ;;
+        *) printf '%s\n' "$message" ;;
     esac
 }
-export PYTHONWARNINGS="ignore::FutureWarning"
+
+require_command() {
+    local cmd="$1"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        display_message "Missing required command: $cmd" "red"
+        exit 1
+    fi
+}
+
+json_escape() {
+    local str="$1"
+    str=${str//\\/\\\\}
+    str=${str//\"/\\\"}
+    str=${str//$'\n'/\\n}
+    str=${str//$'\r'/\\r}
+    str=${str//$'\t'/\\t}
+    printf '%s' "$str"
+}
+
+cleanup_on_exit() {
+    if [[ "$SCRIPT_SUCCESS" == true ]]; then
+        return
+    fi
+
+    if [[ -n "$RESOURCE_GROUP" && "$DELETE_FAILED_RG" == true ]]; then
+        display_message "Deleting failed resource group '$RESOURCE_GROUP'..." "yellow"
+        az group delete \
+            --name "$RESOURCE_GROUP" \
+            --yes \
+            --no-wait \
+            --only-show-errors || true
+    fi
+}
+trap cleanup_on_exit EXIT
+
+generate_random_password() {
+    local password
+    password=$(tr -dc 'A-Za-z0-9!@#%^&*' < /dev/urandom | head -c 24 || true)
+    printf '%s' "$password"
+}
+
+random_suffix() {
+    local suffix
+    suffix=$(tr -dc '0-9' < /dev/urandom | head -c 4 || true)
+    printf '%s' "$suffix"
+}
+
 check_azure_authentication() {
-    az account show &> /dev/null
-    if [ $? -ne 0 ]; then
-        display_message "Please authenticate to your Azure account using 'az login --use-device-code'." "red"
+    if ! az account show --only-show-errors >/dev/null 2>&1; then
+        display_message "Please authenticate to Azure with 'az login --use-device-code' before running this script." "red"
         exit 1
     fi
 }
 
-check_security_type_feature() {
-    local feature_state
-    feature_state=$(az feature show --namespace "Microsoft.Compute" --name "UseStandardSecurityType" --query "properties.state" -o tsv 2>/dev/null)
+ensure_security_type_feature() {
+    local state
+    state=$(az feature show \
+        --namespace "$FEATURE_NAMESPACE" \
+        --name "$FEATURE_NAME" \
+        --query "properties.state" \
+        -o tsv 2>/dev/null || echo "")
 
-    if [[ "$feature_state" != "Registered" ]]; then
-        echo "The feature 'Microsoft.Compute/UseStandardSecurityType' is not registered. Registering now..." "yellow"
-        az feature register --namespace "Microsoft.Compute" --name "UseStandardSecurityType"
-        echo "Feature registration initiated. This may take several minutes to complete." "yellow"
-        echo "You must rerun the script once registration is complete." "red"
-        exit 1
-    else echo "The Feaute UseStandardSecurityType is aleardy registered";
+    if [[ "$state" == "Registered" ]]; then
+        display_message "Feature ${FEATURE_NAMESPACE}/${FEATURE_NAME} already registered." "green"
+        return
     fi
+
+    display_message "Registering feature ${FEATURE_NAMESPACE}/${FEATURE_NAME}..." "yellow"
+    az feature register \
+        --namespace "$FEATURE_NAMESPACE" \
+        --name "$FEATURE_NAME" \
+        --only-show-errors >/dev/null
+
+    display_message "Registration submitted. Azure can take several minutes. Re-run the script once registration completes:" "yellow"
+    display_message "az feature show --namespace $FEATURE_NAMESPACE --name $FEATURE_NAME --query properties.state -o tsv" "blue"
+    exit 1
 }
+
 delete_old_resource_groups() {
-    az group list --query "[?starts_with(name, 'thiefjoinerRGDeleteme')].name" -o tsv | while read -r group; do
-        az group delete --name "$group" --yes --no-wait &> /dev/null
-        if [ $? -eq 0 ]; then
-            display_message "Successfully deleted resource group $group." "green"
-        else
-            display_message "Failed to delete resource group $group." "red"
-        fi
-    done
+    display_message "Looking for stale resource groups matching ${RG_PREFIX}* ..." "blue"
+    local groups_found=0
+    while IFS= read -r group; do
+        [[ -z "$group" ]] && continue
+        groups_found=1
+        display_message "Deleting stale resource group '$group'..." "yellow"
+        az group delete \
+            --name "$group" \
+            --yes \
+            --no-wait \
+            --only-show-errors >/dev/null && \
+            display_message "Scheduled deletion for '$group'." "green"
+    done < <(az group list --query "[?starts_with(name, '${RG_PREFIX}')].name" -o tsv)
+
+    if [[ "$groups_found" -eq 0 ]]; then
+        display_message "No stale resource groups found." "green"
+    fi
+}
+
+create_resource_group() {
+    display_message "Creating resource group '$RESOURCE_GROUP' in $LOCATION..." "blue"
+    az group create \
+        --name "$RESOURCE_GROUP" \
+        --location "$LOCATION" \
+        --only-show-errors >/dev/null
+}
+
+create_nsg() {
+    display_message "Creating network security group '$NSG_NAME'..." "blue"
+    az network nsg create \
+        --name "$NSG_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --location "$LOCATION" \
+        --only-show-errors >/dev/null
 }
 
 configure_nsg_rules() {
-    local nsg_name="$1"
-    local resource_group="$2"
-    local allowed_ip="$3"
-    
+    local allowed_ip="$1"
+
+    display_message "Configuring NSG rules for $allowed_ip ..." "blue"
+
     az network nsg rule create \
-    --resource-group "$resource_group" \
-    --nsg-name "$nsg_name" \
-    --name DenyInbound \
-    --priority 1000 \
-    --direction Inbound \
-    --access Deny \
-    --protocol '*' \
-    --source-address-prefixes '*' \
-    --source-port-ranges '*' \
-    --destination-address-prefixes '*' \
-    --destination-port-ranges '*' > /dev/null
-    
+        --resource-group "$RESOURCE_GROUP" \
+        --nsg-name "$NSG_NAME" \
+        --name "AllowJoinerInbound" \
+        --priority 200 \
+        --direction Inbound \
+        --access Allow \
+        --protocol Tcp \
+        --source-address-prefixes "$allowed_ip" \
+        --source-port-ranges '*' \
+        --destination-address-prefixes '*' \
+        --destination-port-ranges 3389 22 5985 5986 \
+        --only-show-errors >/dev/null
+
     az network nsg rule create \
-    --resource-group "$resource_group" \
-    --nsg-name "$nsg_name" \
-    --name AllowInbound \
-    --priority 200 \
-    --direction Inbound \
-    --access Allow \
-    --protocol Tcp \
-    --source-address-prefixes "$allowed_ip" \
-    --source-port-ranges '*' \
-    --destination-address-prefixes '*' \
-    --destination-port-ranges 3389 22 5985 5986 > /dev/null
+        --resource-group "$RESOURCE_GROUP" \
+        --nsg-name "$NSG_NAME" \
+        --name "DenyAllInbound" \
+        --priority 1000 \
+        --direction Inbound \
+        --access Deny \
+        --protocol '*' \
+        --source-address-prefixes '*' \
+        --source-port-ranges '*' \
+        --destination-address-prefixes '*' \
+        --destination-port-ranges '*' \
+        --only-show-errors >/dev/null
 }
 
-wait_for_vm_to_be_running() {
-    local resource_group="$1"
-    local vm_name="$2"
-    
+wait_for_vm_power_state() {
+    local desired_state="$1"
+    local message="$2"
+
+    display_message "$message" "blue"
     while true; do
-        vm_state=$(az vm get-instance-view --resource-group "$resource_group" --name "$vm_name" --query "instanceView.statuses[?code=='PowerState/running'].code" -o tsv)
-        if [[ "$vm_state" == "PowerState/running" ]]; then
-            display_message "VM is running. Waiting for 30 seconds to ensure services are ready..." "yellow"
-            sleep 30
+        local state
+        state=$(az vm get-instance-view \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$VM_NAME" \
+            --query "instanceView.statuses[?starts_with(code,'PowerState/')].code" \
+            -o tsv)
+
+        if [[ "$state" == "$desired_state" ]]; then
+            display_message "VM reached state $desired_state." "green"
             break
-        else
-            display_message "Waiting for VM to be in 'running' state..." "yellow"
-            sleep 10
         fi
+
+        display_message "Current state: ${state:-unknown}. Waiting 15 seconds..." "yellow"
+        sleep 15
     done
 }
 
-generate_random_password() {
-    tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 15 && echo -n "+"
-}
-
-main() {
-    local allowed_ip=""
-    local username=""
-    local domain=""
-    local password=""
-    
-    while getopts "r:u:d:p:" opt; do
-        case $opt in
-            r) allowed_ip="$OPTARG" ;;
-            u) username="$OPTARG" ;;
-            d) domain="$OPTARG" ;;
-            p) password="$OPTARG" ;;
-            *)
-                display_message "Invalid option provided. Use -r to specify the allowed IP range, -u for username, -d for domain, and -p for password." "red"
-                exit 1
-            ;;
-        esac
-    done
-    
-    if [ -z "$allowed_ip" ]; then
-        display_message "Allowed IP range must be provided using the -r flag." "red"
-        exit 1
-    fi
-    
-    if [ -z "$username" ] || [ -z "$domain" ] || [ -z "$password" ]; then
-        display_message "Username, domain, and password must be provided using the -u, -d, and -p flags." "red"
-        exit 1
-    fi
-    
-    check_azure_authentication
-    delete_old_resource_groups
-    sleep 3
-    RANDOMNUM=$(echo $RANDOM$RANDOM | head -c 4)
-    RESOURCE_GROUP="thiefjoinerRGDeleteme$RANDOMNUM"
-    LOCATION="germanywestcentral"
-    VM_NAME="Win$RANDOMNUM"
-    ADMIN_USER="joiner"
-    ADMIN_PASSWORD=$(generate_random_password)
-    ##IMAGE="MicrosoftWindowsServer:WindowsServer:2025-datacenter-azure-edition:latest"
-    IMAGE="MicrosoftWindowsDesktop:Windows-10:win10-22h2-pro:latest" ## Gen1 for no TPM
-    ##IMAGE="MicrosoftWindowsDesktop:windows-11:win11-24h2-ent:latest"
-    NSG_NAME="${VM_NAME}-nsg"
-    
-    display_message "Creating Resource Group..." "blue"
-    az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
-    sleep 5
-    
-    display_message "Creating Network Security Group..." "blue"
-    az network nsg create --resource-group "$RESOURCE_GROUP" --name "$NSG_NAME"
-    
-    configure_nsg_rules "$NSG_NAME" "$RESOURCE_GROUP" "$allowed_ip"
-    sleep 15
-    check_security_type_feature
-    sleep 5
-    display_message "Creating Windows Server VM with password authentication..." "blue"
-    az vm create \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$VM_NAME" \
-    --image "$IMAGE" \
-    --admin-username "$ADMIN_USER" \
-    --admin-password "$ADMIN_PASSWORD" \
-    --license-type Windows_Client --accept-term --security-type Standard --public-ip-sku Standard --size Standard_F4s  --nsg "$NSG_NAME" 
-    
-    sleep 5
-    display_message "Enabling Microsoft Entra ID login on the VM..." "blue"
-    az vm extension set \
-  --resource-group "$RESOURCE_GROUP" \
-  --vm-name "$VM_NAME" \
-  --name AADLoginForWindows \
-  --publisher Microsoft.Azure.ActiveDirectory \
-  --version 1.0 \
-  --no-wait
-    display_message "Waiting for VM provisioning..." "blue"
-    az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --created
-    display_message "Waiting for VM Agent to reach Ready state..." "blue"
-    
+wait_for_vm_agent_ready() {
+    display_message "Waiting for VM agent to report ProvisioningState/succeeded ..." "blue"
     while true; do
-        VM_STATUS=$(az vm get-instance-view \
+        local agent_status
+        agent_status=$(az vm get-instance-view \
             --resource-group "$RESOURCE_GROUP" \
             --name "$VM_NAME" \
             --query "instanceView.vmAgent.statuses[?code=='ProvisioningState/succeeded'].displayStatus" \
-        --output tsv)
-        
-        if [[ "$VM_STATUS" == "Ready" ]]; then
-            display_message "VM Agent is in Ready state." "green"
-            break
-        else
-            display_message "VM Agent not ready yet. Checking again in 30 seconds..." "yellow"
-            sleep 30
+            -o tsv)
+
+        if [[ "$agent_status" == "Ready" ]]; then
+            display_message "VM agent is Ready." "green"
+            return
         fi
+
+        display_message "VM agent still provisioning. Sleeping 30 seconds..." "yellow"
+        sleep 30
     done
-    az vm auto-shutdown \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$VM_NAME" \
-    --time 1900
-    sleep 5
-    IP=$(az vm show --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" -d --query "publicIps" -o tsv)
-    display_message "VM IP: $IP" "green"
-    display_message "sshpass -p \"$ADMIN_PASSWORD\" ssh -o StrictHostKeyChecking=no \"$ADMIN_USER@$IP\"" "green"
-    sleep 5
-    # Execute the merged setup script remotely by downloading and invoking it
-    display_message "Uploading and executing merged setup script..." "blue"
-    az vm run-command invoke \
-    --resource-group "$RESOURCE_GROUP" \
-    --name "$VM_NAME" \
-    --command-id RunPowerShellScript \
-    --scripts '
-        param(
-            [string]$username,
-            [string]$domain,
-            [string]$password,
-            [string]$RESOURCE_GROUP
-        )
-        try {
-            $url = "https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/3.ps1"
-            $response = Invoke-WebRequest -Uri $url -UseBasicParsing
-            if ($response.StatusCode -ne 200) {
-                Write-Host "Failed to download script. HTTP Status: $($response.StatusCode)"
-                exit 1
-            }
-            $scriptContent = $response.Content
-            if (-not $scriptContent) {
-                Write-Host "Downloaded script content is empty."
-                exit 1
-            }
-            & ([scriptblock]::Create($scriptContent)) -username $username -domain $domain -password $password -RESOURCE_GROUP $RESOURCE_GROUP
-        } catch {
-            Write-Host "Error executing script: $_"
-            exit 1
-        }
-    ' \
-    --parameters "username=$username" "domain=$domain" "password=$password" "RESOURCE_GROUP=$RESOURCE_GROUP"
-    sleep 15
-    az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --custom "instanceView.statuses[?code=='PowerState/running']" --timeout 300
+}
+
+enable_aad_login() {
+    display_message "Enabling Entra ID login extension..." "blue"
     az vm extension set \
-  --resource-group "$RESOURCE_GROUP" \
-  --vm-name "$VM_NAME" \
-  --name CustomScriptExtension \
-  --publisher Microsoft.Compute \
-  --settings '{"fileUris": ["https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/1.ps1"], "commandToExecute": "powershell -ExecutionPolicy Unrestricted -File 1.ps1 -username '"$username"' -domain '"$domain"' -password '"$password"' -RESOURCE_GROUP '"$RESOURCE_GROUP"'"}'
-    display_message "Waiting some time for reboot to complete..." "blue"
-    az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --custom "instanceView.statuses[?code=='PowerState/running']" --timeout 300
-    az vm restart --resource-group "$RESOURCE_GROUP" --name "$VM_NAME"
-    az vm wait --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --custom "instanceView.statuses[?code=='PowerState/running']" --timeout 300
-    display_message "Your Windows VM has been created successfully! and is currently restarting" "green"
-    echo "Connect to your VM using the following details:"
-    echo "Public IP: $IP"
-    echo "Username: $ADMIN_USER"
-    echo "Allowed IP range: $allowed_ip"
-    echo "Ports open: RDP (3389), SSH (22), WinRM (5985/5986)"
-    echo
-    echo "cmdkey /generic:\"$IP\" /user:\"$ADMIN_USER\" /pass:\"$ADMIN_PASSWORD\"; mstsc /v:$IP"
-    echo "xfreerdp /v:$IP /u:$ADMIN_USER /p:\"$ADMIN_PASSWORD\" /cert:ignore /cert:ignore /dynamic-resolution /clipboard /drive:joiner,./ /admin"
-    echo "sshpass -p \"$ADMIN_PASSWORD\" ssh -o StrictHostKeyChecking=no \"$ADMIN_USER@$IP\""
-    echo "evil-winrm  -i $IP -u $ADMIN_USER -p \"$ADMIN_PASSWORD\" -P 5985"
-    read -p "Do you want to connect via SSH or xfreerdp? (ssh/rdp): " connection_choice
-    if [[ "$connection_choice" == "ssh" ]]; then
-        display_message "Connecting via SSH..." "blue"
-        sshpass -p "$ADMIN_PASSWORD" ssh -o StrictHostKeyChecking=no "$ADMIN_USER@$IP"
-        elif [[ "$connection_choice" == "rdp" ]]; then
-        display_message "Connecting via xfreerdp..." "blue"
-        /usr/bin/xfreerdp3 /v:"$IP" /u:"$ADMIN_USER" /p:"$ADMIN_PASSWORD" /cert:ignore /dynamic-resolution /clipboard /drive:joiner,./ /admin
-    else
-        display_message "Invalid choice. Exiting." "red"
+        --resource-group "$RESOURCE_GROUP" \
+        --vm-name "$VM_NAME" \
+        --name AADLoginForWindows \
+        --publisher Microsoft.Azure.ActiveDirectory \
+        --version 1.0 \
+        --only-show-errors >/dev/null
+}
+
+run_inline_script() {
+    local tempfile
+    tempfile=$(mktemp)
+    cat <<'POWERSHELL' > "$tempfile"
+param(
+    [string]$username,
+    [string]$domain,
+    [string]$password,
+    [string]$RESOURCE_GROUP
+)
+
+try {
+    $url = "https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/3.ps1"
+    $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 60
+    if ($response.StatusCode -ne 200) {
+        throw "Failed to download script. HTTP Status: $($response.StatusCode)"
+    }
+
+    $scriptContent = $response.Content
+    if ([string]::IsNullOrWhiteSpace($scriptContent)) {
+        throw "Downloaded script content is empty."
+    }
+
+    & ([scriptblock]::Create($scriptContent)) -username $username -domain $domain -password $password -RESOURCE_GROUP $RESOURCE_GROUP
+}
+catch {
+    Write-Host "Error executing bootstrap script: $_"
+    exit 1
+}
+POWERSHELL
+
+    az vm run-command invoke \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$VM_NAME" \
+        --command-id RunPowerShellScript \
+        --scripts @"$tempfile" \
+        --parameters "username=$ENTRA_USERNAME" "domain=$ENTRA_DOMAIN" "password=$ENTRA_PASSWORD" "RESOURCE_GROUP=$RESOURCE_GROUP" \
+        --only-show-errors >/dev/null
+
+    rm -f "$tempfile"
+}
+
+run_custom_script_extension() {
+    display_message "Installing tools via CustomScriptExtension..." "blue"
+    local escaped_username escaped_domain escaped_password escaped_rg settings
+    escaped_username=$(json_escape "$ENTRA_USERNAME")
+    escaped_domain=$(json_escape "$ENTRA_DOMAIN")
+    escaped_password=$(json_escape "$ENTRA_PASSWORD")
+    escaped_rg=$(json_escape "$RESOURCE_GROUP")
+    settings=$(cat <<JSON
+{
+  "fileUris": [
+    "https://raw.githubusercontent.com/crtvrffnrt/joiner/refs/heads/main/1.ps1"
+  ],
+  "commandToExecute": "powershell -ExecutionPolicy Bypass -File 1.ps1 -username \\"${escaped_username}\\" -domain \\"${escaped_domain}\\" -password \\"${escaped_password}\\" -RESOURCE_GROUP \\"${escaped_rg}\\""
+}
+JSON
+)
+
+    az vm extension set \
+        --resource-group "$RESOURCE_GROUP" \
+        --vm-name "$VM_NAME" \
+        --name CustomScriptExtension \
+        --publisher Microsoft.Compute \
+        --settings "$settings" \
+        --only-show-errors >/dev/null
+}
+
+configure_auto_shutdown() {
+    display_message "Configuring auto-shutdown at ${AUTO_SHUTDOWN_TIME}..." "blue"
+    az vm auto-shutdown \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$VM_NAME" \
+        --time "$AUTO_SHUTDOWN_TIME" \
+        --only-show-errors >/dev/null
+}
+
+retrieve_public_ip() {
+    PUBLIC_IP=$(az vm show \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$VM_NAME" \
+        -d \
+        --query "publicIps" \
+        -o tsv)
+}
+
+prompt_for_connection() {
+    if [[ "$PROMPT_FOR_CONNECTION" != true ]]; then
+        return
+    fi
+
+    printf '\n'
+    read -r -p "Connect now via ssh or rdp? (ssh/rdp/skip): " connection_choice
+    case "$connection_choice" in
+        ssh)
+            require_command sshpass
+            display_message "Opening SSH session..." "blue"
+            sshpass -p "$ADMIN_PASSWORD" ssh -o StrictHostKeyChecking=no "$ADMIN_USERNAME@$PUBLIC_IP"
+            ;;
+        rdp)
+            local rdp_cmd=""
+            if command -v xfreerdp >/dev/null 2>&1; then
+                rdp_cmd="xfreerdp"
+            elif command -v xfreerdp3 >/dev/null 2>&1; then
+                rdp_cmd="xfreerdp3"
+            elif [[ -x /usr/bin/xfreerdp3 ]]; then
+                rdp_cmd="/usr/bin/xfreerdp3"
+            fi
+
+            if [[ -z "$rdp_cmd" ]]; then
+                display_message "xfreerdp is not installed. Install it or choose ssh." "red"
+                exit 1
+            fi
+
+            display_message "Opening RDP session via $rdp_cmd..." "blue"
+            "$rdp_cmd" /v:"$PUBLIC_IP" /u:"$ADMIN_USERNAME" /p:"$ADMIN_PASSWORD" /cert:ignore /dynamic-resolution /clipboard /drive:joiner,./ /admin
+            ;;
+        skip|"")
+            display_message "Skipping interactive connection." "yellow"
+            ;;
+        *)
+            display_message "Unknown option '$connection_choice'." "red"
+            exit 1
+            ;;
+    esac
+}
+
+summarize() {
+    cat <<EOF
+
+Connect to your VM with the following details:
+  Resource Group : $RESOURCE_GROUP
+  VM Name        : $VM_NAME
+  Location       : $LOCATION
+  Public IP      : $PUBLIC_IP
+  Local Admin    : $ADMIN_USERNAME
+  Admin Password : $ADMIN_PASSWORD
+
+Suggested commands:
+  cmdkey /generic:"$PUBLIC_IP" /user:"$ADMIN_USERNAME" /pass:"$ADMIN_PASSWORD"; mstsc /v:$PUBLIC_IP
+  sshpass -p "$ADMIN_PASSWORD" ssh -o StrictHostKeyChecking=no "$ADMIN_USERNAME@$PUBLIC_IP"
+  evil-winrm -i "$PUBLIC_IP" -u "$ADMIN_USERNAME" -p "$ADMIN_PASSWORD" -P 5985
+EOF
+}
+
+parse_args() {
+    if [[ $# -eq 0 ]]; then
+        usage
+        exit 1
+    fi
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -r|--range)
+                ALLOWED_IP="$2"
+                shift 2
+                ;;
+            -u|--user)
+                ENTRA_USERNAME="$2"
+                shift 2
+                ;;
+            -d|--domain)
+                ENTRA_DOMAIN="$2"
+                shift 2
+                ;;
+            -p|--password)
+                ENTRA_PASSWORD="$2"
+                shift 2
+                ;;
+            --location)
+                LOCATION="$2"
+                shift 2
+                ;;
+            --vm-size)
+                VM_SIZE="$2"
+                shift 2
+                ;;
+            --image)
+                VM_IMAGE="$2"
+                shift 2
+                ;;
+            --no-connect)
+                PROMPT_FOR_CONNECTION=false
+                shift
+                ;;
+            --keep-old)
+                CLEANUP_STALE_GROUPS=false
+                shift
+                ;;
+            --keep-on-fail)
+                DELETE_FAILED_RG=false
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                display_message "Unknown argument: $1" "red"
+                usage
+                exit 1
+                ;;
+        esac
+    done
+
+    if [[ -z "${ALLOWED_IP:-}" || -z "${ENTRA_USERNAME:-}" || -z "${ENTRA_DOMAIN:-}" || -z "${ENTRA_PASSWORD:-}" ]]; then
+        display_message "Missing required arguments." "red"
+        usage
         exit 1
     fi
 }
+
+main() {
+    parse_args "$@"
+    require_command az
+
+    check_azure_authentication
+    ensure_security_type_feature
+
+    if [[ "$CLEANUP_STALE_GROUPS" == true ]]; then
+        delete_old_resource_groups
+    fi
+
+    ADMIN_PASSWORD=$(generate_random_password)
+    local suffix
+    suffix=$(random_suffix)
+    RESOURCE_GROUP="${RG_PREFIX}${suffix}"
+    VM_NAME="win${suffix}"
+    NSG_NAME="${VM_NAME}-nsg"
+
+    create_resource_group
+    create_nsg
+    configure_nsg_rules "$ALLOWED_IP"
+
+    display_message "Starting VM deployment..." "blue"
+    PUBLIC_IP=$(az vm create \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$VM_NAME" \
+        --image "$VM_IMAGE" \
+        --size "$VM_SIZE" \
+        --nsg "$NSG_NAME" \
+        --admin-username "$ADMIN_USERNAME" \
+        --admin-password "$ADMIN_PASSWORD" \
+        --license-type Windows_Client \
+        --accept-term \
+        --security-type Standard \
+        --public-ip-sku Standard \
+        --only-show-errors \
+        --query "publicIpAddress" \
+        -o tsv)
+
+    wait_for_vm_power_state "PowerState/running" "Waiting for VM to enter 'running' state..."
+    enable_aad_login
+    wait_for_vm_agent_ready
+    configure_auto_shutdown
+
+    run_inline_script
+    wait_for_vm_power_state "PowerState/running" "Waiting for VM to finish reboot after bootstrap..."
+    run_custom_script_extension
+    wait_for_vm_power_state "PowerState/running" "Waiting for VM to finish reboot after CustomScriptExtension..."
+    az vm restart --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --only-show-errors >/dev/null
+    wait_for_vm_power_state "PowerState/running" "Final restart in progress..."
+
+    retrieve_public_ip
+    display_message "VM provisioning complete!" "green"
+    summarize
+    prompt_for_connection
+
+    SCRIPT_SUCCESS=true
+}
+
 main "$@"

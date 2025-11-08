@@ -1,192 +1,224 @@
-#region Logging Functions
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+$LogFile = "C:\setup_log.txt"
 
-Function Log-Info($Message) {
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Write-Host "$timestamp - INFO: $Message" -ForegroundColor Cyan
-}
-
-Function Log-Error($Message) {
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $errorMsg = "$timestamp - ERROR: $Message"
-    Write-Host $errorMsg -ForegroundColor Red
-    Add-Content -Path "C:\setup_log.txt" -Value $errorMsg
-}
-#endregion
-
-#region Admin Check
-if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Log-Error "Please run this script as Administrator!"
-    exit 1
-}
-#endregion
-
-#region Pre-Defender Hardening
-try {
-    Set-MpPreference -ExclusionPath "C:\", "C:\Windows\Temp", "C:\Packages"
-    Log-Info "Early Defender exclusion added for C:\\ and system temp directories."
-} catch {
-    Log-Error "Failed to set Defender exclusions early: $_"
-}
-
-try {
-    $tamperPath = "HKLM:\SOFTWARE\Microsoft\Windows Defender\Features"
-    if (Test-Path $tamperPath) {
-        Set-ItemProperty -Path $tamperPath -Name "TamperProtection" -Value 0 -Force
-        Log-Info "Tamper Protection disabled via registry."
-    } else {
-        Log-Error "Tamper Protection registry path not found."
-    }
-} catch {
-    Log-Error "Failed to disable Tamper Protection: $_"
-}
-
-try {
-    Set-MpPreference -DisableRealtimeMonitoring $true
-    Set-MpPreference -DisableBehaviorMonitoring $true
-    Set-MpPreference -DisableBlockAtFirstSeen $true
-    Set-MpPreference -DisableIOAVProtection $true
-    Set-MpPreference -DisablePrivacyMode $true
-    Set-MpPreference -SignatureDisableUpdateOnStartupWithoutEngine $true
-    Log-Info "Real-Time Protection features disabled."
-} catch {
-    Log-Error "Failed to disable Real-Time Protection: $_"
-}
-
-$timeout = 0
-while ((Get-MpComputerStatus).RealTimeProtectionEnabled -eq $true -and $timeout -lt 60) {
-    Log-Info "Waiting for Real-Time Protection to fully disable..."
-    Start-Sleep -Seconds 2
-    $timeout += 2
-}
-
-if ((Get-MpComputerStatus).RealTimeProtectionEnabled -eq $true) {
-    Log-Error "Defender Real-Time Protection still active after waiting. Potential blocking risk remains!"
-} else {
-    Log-Info "Defender Real-Time Protection is fully disabled."
-}
-#endregion
-
-#region Internet and Firewall Configuration
-try {
-    reg add "HKLM\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap" /v IEHarden /t REG_DWORD /d 0 /f
-    Log-Info "Disabled IE Enhanced Security Configuration."
-} catch {
-    Log-Error "Failed to disable IE Enhanced Security: $_"
-}
-
-try {
-    New-NetFirewallRule -DisplayName "Allow Outbound Traffic" -Direction Outbound -Action Allow -Protocol Any
-    Log-Info "Firewall rule added to allow all outbound traffic."
-} catch {
-    Log-Error "Failed to apply firewall outbound rule: $_"
-}
-
-try {
-    Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
-    Log-Info "Disabled Windows Firewall for all profiles."
-} catch {
-    Log-Error "Failed to disable Windows Firewall: $_"
-}
-
-try {
-    Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
-    Log-Info "Network profile set to Private."
-} catch {
-    Log-Error "Failed to set network profile: $_"
-}
-
-try {
-    Start-Service -Name WinHttpAutoProxySvc -ErrorAction SilentlyContinue
-    Start-Service -Name BITS -ErrorAction SilentlyContinue
-    Log-Info "Started WinHttpAutoProxySvc and BITS services."
-} catch {
-    Log-Error "Failed to start WinHttpAutoProxySvc or BITS: $_"
-}
-#endregion
-
-#region WinRM and RDP Setup
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Tls13
-
-try {
-    Enable-PSRemoting -Force -SkipNetworkProfileCheck
-    Log-Info "Enabled PowerShell Remoting."
-
-    $httpsListener = Get-ChildItem WSMan:\localhost\Listener | Where-Object { $_.Keys["Transport"] -eq "HTTPS" }
-    if (-not $httpsListener) {
-        $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
-        New-Item -Path WSMan:\localhost\Listener -Transport HTTPS -Address * -Port 5986 -CertificateThumbPrint $cert.Thumbprint -Force
-        Log-Info "Created HTTPS listener for WinRM."
-    } else {
-        Log-Info "HTTPS listener already exists."
-    }
-
-    if (-not (Get-NetFirewallRule -DisplayName "WinRM HTTPS" -ErrorAction SilentlyContinue)) {
-        New-NetFirewallRule -Name "WinRM HTTPS" -DisplayName "WinRM HTTPS" -Enabled True -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow
-        Log-Info "Firewall rule added for WinRM HTTPS."
-    } else {
-        Log-Info "WinRM HTTPS firewall rule already exists."
-    }
-} catch {
-    Log-Error "Failed to enable WinRM HTTPS: $_"
-}
-
-try {
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
-    Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-    Log-Info "Enabled RDP access."
-} catch {
-    Log-Error "Failed to enable RDP: $_"
-}
-#endregion
-
-#region Tool Installation Section
-try {
-    if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
-        Invoke-Expression ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("aHR0cHM6Ly9ha2EubXMvZ2V0d2luZ2V0"))) | Out-File -FilePath "C:\\winget.msixbundle"
-        Add-AppxPackage -Path "C:\\winget.msixbundle"
-        Log-Info "Installed Winget."
-    } else {
-        Log-Info "Winget already installed."
-    }
-
-    winget install --id Git.Git -e --accept-source-agreements --accept-package-agreements
-    Log-Info "Installed Git."
-
-    winget install --id Python.Python.3 -e --accept-source-agreements --accept-package-agreements
-    winget install --id Microsoft.VisualStudio.2022.BuildTools -e --accept-source-agreements --accept-package-agreements
-    Log-Info "Installed Python and VS Build Tools."
-
-    Invoke-Expression ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("cGlwIGluc3RhbGwgc2V0dGluZ3MgaGVyZQ==")))
-
-    $modules = @("AADInternals", "Microsoft.Graph", "AzureAD", "AzureAD.Standard.Preview", "MSOnline")
-    foreach ($mod in $modules) {
-        Install-Module -Name $mod -Force -Scope CurrentUser
-    }
-
-    $repos = @(
-        @{url="aHR0cHM6Ly9naXRodWIuY29tL05ldFNQSS9HcmFwaFJ1bm5lci5naXQ="; path="C:\\Tools\\GraphRunner"},
-        @{url="aHR0cHM6Ly9naXRodWIuY29tL0Jsb29kSG91bmRBRC9BenVyZUhvdW5kLmdpdA=="; path="C:\\Tools\\AzureHound"},
-        @{url="aHR0cHM6Ly9naXRodWIuY29tL0dob3N0UGFjay9DZXJ0aWZ5LmdpdA=="; path="C:\\Tools\\Certify"},
-        @{url="aHR0cHM6Ly9naXRodWIuY29tL0dob3N0UGFjay9SdWJldXMuZ2l0"; path="C:\\Tools\\Rubeus"}
+#region Logging Helpers
+function Write-Log {
+    param(
+        [Parameter(Mandatory)][string]$Message,
+        [ValidateSet("INFO","WARN","ERROR")][string]$Level = "INFO"
     )
-    foreach ($repo in $repos) {
-        git clone ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($repo.url))) $repo.path
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $entry = "$timestamp - $Level: $Message"
+    $color = switch ($Level) {
+        "INFO" { "Cyan" }
+        "WARN" { "Yellow" }
+        default { "Red" }
+    }
+    Write-Host $entry -ForegroundColor $color
+    if ($Level -eq "ERROR") {
+        Add-Content -Path $LogFile -Value $entry
+    }
+}
+#endregion
+
+function Assert-Administrator {
+    if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+        Write-Log -Level "ERROR" -Message "Run this script from an elevated PowerShell prompt."
+        exit 1
+    }
+}
+
+function Disable-DefenderStack {
+    Write-Log "Configuring Defender to avoid interference."
+    try {
+        Set-MpPreference -ExclusionPath "C:\", "C:\Windows\Temp", "C:\Packages" -ErrorAction Stop
+        $tamperPath = "HKLM:\SOFTWARE\Microsoft\Windows Defender\Features"
+        if (Test-Path $tamperPath) {
+            Set-ItemProperty -Path $tamperPath -Name "TamperProtection" -Value 0 -Force -ErrorAction Stop
+        }
+
+        $defenderFlags = @{
+            DisableRealtimeMonitoring                = $true
+            DisableBehaviorMonitoring                = $true
+            DisableBlockAtFirstSeen                  = $true
+            DisableIOAVProtection                    = $true
+            DisablePrivacyMode                       = $true
+            SignatureDisableUpdateOnStartupWithoutEngine = $true
+        }
+        foreach ($flag in $defenderFlags.Keys) {
+            $params = @{ ErrorAction = 'Stop' }
+            $params[$flag] = $defenderFlags[$flag]
+            Set-MpPreference @params
+        }
+
+        $timeout = 0
+        while ((Get-MpComputerStatus).RealTimeProtectionEnabled -and $timeout -lt 60) {
+            Start-Sleep -Seconds 2
+            $timeout += 2
+        }
+        if ((Get-MpComputerStatus).RealTimeProtectionEnabled) {
+            Write-Log -Level "WARN" -Message "Realtime protection still enabled. Manual review recommended."
+        } else {
+            Write-Log "Realtime protection fully disabled."
+        }
+    } catch {
+        Write-Log -Level "ERROR" -Message "Failed to harden Defender: $_"
+    }
+}
+
+function Configure-Networking {
+    Write-Log "Tweaking firewall and networking for unrestricted outbound access."
+    try {
+        reg add "HKLM\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap" /v IEHarden /t REG_DWORD /d 0 /f | Out-Null
+        New-NetFirewallRule -DisplayName "Allow Outbound Traffic" -Direction Outbound -Action Allow -Protocol Any -ErrorAction Stop | Out-Null
+        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False -ErrorAction Stop
+        Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
+        Start-Service -Name WinHttpAutoProxySvc -ErrorAction SilentlyContinue
+        Start-Service -Name BITS -ErrorAction SilentlyContinue
+    } catch {
+        Write-Log -Level "WARN" -Message "Networking configuration hit an issue: $_"
+    }
+}
+
+function Configure-RemoteAccess {
+    Write-Log "Enabling WinRM HTTPS and RDP connectivity."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Tls13
+    try {
+        Enable-PSRemoting -Force -SkipNetworkProfileCheck -ErrorAction Stop
+        $httpsListener = Get-ChildItem WSMan:\localhost\Listener | Where-Object { $_.Keys["Transport"] -eq "HTTPS" }
+        if (-not $httpsListener) {
+            $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
+            New-Item -Path WSMan:\localhost\Listener -Transport HTTPS -Address * -Port 5986 -CertificateThumbPrint $cert.Thumbprint -Force | Out-Null
+        }
+        if (-not (Get-NetFirewallRule -DisplayName "WinRM HTTPS" -ErrorAction SilentlyContinue)) {
+            New-NetFirewallRule -Name "WinRM HTTPS" -DisplayName "WinRM HTTPS" -Enabled True -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
+        }
+        Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0 -ErrorAction Stop
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
+    } catch {
+        Write-Log -Level "ERROR" -Message "Failed to configure remote access: $_"
+    }
+}
+
+function Install-Winget {
+    if (Get-Command winget.exe -ErrorAction SilentlyContinue) {
+        Write-Log "Winget already installed."
+        return
     }
 
-    Import-Module "C:\\Tools\\GraphRunner\\GraphRunner.psm1"
-    Log-Info "Downloaded and installed major Azure/M365 pentesting tools."
-} catch {
-    Log-Error "Tool installation failed: $_"
+    try {
+        $bundlePath = "C:\Packages\winget.msixbundle"
+        New-Item -ItemType Directory -Path (Split-Path $bundlePath) -Force | Out-Null
+        Invoke-WebRequest -Uri "https://aka.ms/getwinget" -OutFile $bundlePath -UseBasicParsing
+        Add-AppxPackage -Path $bundlePath | Out-Null
+        Write-Log "Winget installed."
+    } catch {
+        Write-Log -Level "ERROR" -Message "Winget installation failed: $_"
+    }
 }
-#endregion
 
-#region Completion
-try {
-    mkdir "C:\\endofscriptreached_final" -ErrorAction SilentlyContinue
-    Log-Info "Setup completed successfully. Restarting VM to finalize installation."
-    Start-Sleep -Seconds 5
-    Restart-Computer -Force
-} catch {
-    Log-Error "Failed to restart computer: $_"
+function Install-WingetPackage {
+    param([Parameter(Mandatory)][string]$Id)
+    try {
+        winget install --id $Id -e --silent --accept-source-agreements --accept-package-agreements | Out-Null
+        Write-Log "Installed package $Id"
+    } catch {
+        Write-Log -Level "WARN" -Message "Failed installing $Id via Winget: $_"
+    }
 }
-#endregion
+
+function Ensure-PowerShellModule {
+    param([Parameter(Mandatory)][string]$Name)
+    try {
+        if (-not (Get-Module -ListAvailable -Name $Name)) {
+            Install-Module -Name $Name -Force -Scope CurrentUser -AllowClobber -ErrorAction Stop
+            Write-Log "Installed module $Name"
+        } else {
+            Write-Log "Module $Name already available."
+        }
+    } catch {
+        Write-Log -Level "WARN" -Message "Module $Name failed to install: $_"
+    }
+}
+
+function Clone-OffensiveRepository {
+    param(
+        [Parameter(Mandatory)][string]$EncodedUrl,
+        [Parameter(Mandatory)][string]$Path
+    )
+    if (-not (Get-Command git.exe -ErrorAction SilentlyContinue)) {
+        Write-Log -Level "ERROR" -Message "Git is required before cloning tools."
+        return
+    }
+
+    $decodedUrl = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($EncodedUrl))
+    if (Test-Path $Path) {
+        Write-Log -Level "WARN" -Message "Path $Path already exists. Skipping clone."
+        return
+    }
+
+    try {
+        New-Item -ItemType Directory -Path (Split-Path $Path) -Force | Out-Null
+        git clone $decodedUrl $Path | Out-Null
+        Write-Log "Cloned $decodedUrl to $Path"
+    } catch {
+        Write-Log -Level "WARN" -Message "Failed cloning $decodedUrl: $_"
+    }
+}
+
+function Install-ToolsSuite {
+    Install-Winget
+    foreach ($pkg in @(
+        "Git.Git",
+        "Python.Python.3",
+        "Microsoft.VisualStudio.2022.BuildTools",
+        "Microsoft.AzureCLI",
+        "GhidraFoundation.Ghidra",
+        "Nmap.Nmap",
+        "Microsoft.PowerToys",
+        "JanDeDobbeleer.OhMyPosh",
+        "Notepad++.Notepad++"
+    )) {
+        Install-WingetPackage -Id $pkg
+    }
+
+    foreach ($module in @("AADInternals","Microsoft.Graph","AzureAD","AzureAD.Standard.Preview","MSOnline","Az","Az.Resources")) {
+        Ensure-PowerShellModule -Name $module
+    }
+
+    foreach ($repo in @(
+        @{ url = "aHR0cHM6Ly9naXRodWIuY29tL05ldFNQSS9HcmFwaFJ1bm5lci5naXQ="; path = "C:\Tools\GraphRunner" },
+        @{ url = "aHR0cHM6Ly9naXRodWIuY29tL0Jsb29kSG91bmRBRC9BenVyZUhvdW5kLmdpdA=="; path = "C:\Tools\AzureHound" },
+        @{ url = "aHR0cHM6Ly9naXRodWIuY29tL0dob3N0UGFjay9DZXJ0aWZ5LmdpdA=="; path = "C:\Tools\Certify" },
+        @{ url = "aHR0cHM6Ly9naXRodWIuY29tL0dob3N0UGFjay9SdWJldXMuZ2l0"; path = "C:\Tools\Rubeus" }
+    )) {
+        Clone-OffensiveRepository -EncodedUrl $repo.url -Path $repo.path
+    }
+
+    try {
+        Import-Module "C:\Tools\GraphRunner\GraphRunner.psm1" -Force -ErrorAction Stop
+        Write-Log "Imported GraphRunner module."
+    } catch {
+        Write-Log -Level "WARN" -Message "GraphRunner module import failed: $_"
+    }
+}
+
+function Finalize-System {
+    try {
+        New-Item -Path "C:\endofscriptreached_final" -ItemType Directory -Force | Out-Null
+        Write-Log "Marker folder created. Rebooting to finalize."
+        Start-Sleep -Seconds 5
+        Restart-Computer -Force
+    } catch {
+        Write-Log -Level "ERROR" -Message "Failed to restart computer: $_"
+    }
+}
+
+Assert-Administrator
+Disable-DefenderStack
+Configure-Networking
+Configure-RemoteAccess
+Install-ToolsSuite
+Finalize-System
