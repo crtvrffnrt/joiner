@@ -52,24 +52,6 @@ The `-r` flag restricts inbound NSG access to your IP. Credentials are passed to
 
 ---
 
-## Windows Server Path (`createWinServer.sh`)
-
-`createWinServer.sh` now validates input, checks local dependencies, and allows overrides via environment variables:
-
-```bash
-export RAW_BASE_URL="https://raw.githubusercontent.com/<fork>/joiner/main"
-export LOCATION="westeurope"
-export VM_SIZE="Standard_D4s_v4"
-./createWinServer.sh -r "198.51.100.25/32"
-```
-
-Key improvements:
-
-- Hardened error handling (`set -euo pipefail`) with helpful failure messaging.
-- Automatic cleanup of old `WinServAttack*` resource groups before deploying the new one.
-- Environment variable overrides for image, size, username, and script source.
-- Optional interactive connection step (SSH, RDP, or Evil-WinRM) that verifies the required client is installed before launching it.
-
 ---
 
 ## Guest-Side Script Flow
@@ -82,38 +64,6 @@ Key improvements:
 
 Each script writes to `C:\setup_log.txt` on errors and drops a marker folder (`C:\endofscriptreached_*`) so you can check which steps completed.
 
----
-
-## Git Workflow Tips
-
-1. **Clone the repo**
-   ```bash
-   git clone https://github.com/<your-org>/joiner.git
-   cd joiner
-   ```
-2. **Create a feature branch** – keeps your changes isolated and reviewable.
-   ```bash
-   git checkout -b feature/<short-description>
-   ```
-3. **Keep your fork in sync** – pull from `main` before long-running work.
-   ```bash
-   git fetch origin
-   git rebase origin/main
-   ```
-4. **Stage & commit** – small, logical commits with descriptive messages.
-   ```bash
-   git add createWinServer.sh 22.ps1 README.md
-   git commit -m "Improve server deployment flow and document Git usage"
-   ```
-5. **Push & open a PR**
-   ```bash
-   git push --set-upstream origin feature/<short-description>
-   ```
-6. **Tag tested releases** – once a script combo is validated, tag it so you can reference the exact toolkit used for an exercise.
-   ```bash
-   git tag -a v1.2.0 -m "Server + tooling refresh"
-   git push origin v1.2.0
-   ```
 
 ---
 
