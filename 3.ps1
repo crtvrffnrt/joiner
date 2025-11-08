@@ -17,7 +17,7 @@ function Write-Log {
         [ValidateSet("INFO","WARN","ERROR")][string]$Level = "INFO"
     )
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $entry = "$timestamp - $Level: $Message"
+    $entry = "$timestamp - ${Level}: $Message"
     $color = switch ($Level) {
         "INFO" { "Cyan" }
         "WARN" { "Yellow" }

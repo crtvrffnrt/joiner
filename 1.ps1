@@ -18,7 +18,7 @@ function Write-Log {
     )
 
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $entry = "$timestamp - $Level: $Message"
+    $entry = "$timestamp - ${Level}: $Message"
     $color = if ($Level -eq "ERROR") { "Red" } else { "Cyan" }
     Write-Host $entry -ForegroundColor $color
 

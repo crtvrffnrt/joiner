@@ -12,7 +12,7 @@ function Write-Log {
         [ValidateSet("INFO","WARN","ERROR")][string]$Level = "INFO"
     )
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $entry = "$timestamp - $Level: $Message"
+    $entry = "$timestamp - ${Level}: $Message"
     $color = switch ($Level) {
         "INFO" { "Cyan" }
         "WARN" { "Yellow" }
@@ -63,7 +63,7 @@ function Install-WingetPackage {
         winget install --id $Id -e --silent --accept-source-agreements --accept-package-agreements | Out-Null
         Write-Log "Installed $Id"
     } catch {
-        Write-Log -Level "WARN" -Message "Failed to install $Id: $_"
+        Write-Log -Level "WARN" -Message "Failed to install ${Id}: $_"
     }
 }
 
@@ -103,7 +103,7 @@ function Clone-Repo {
         git clone $url $Path | Out-Null
         Write-Log "Cloned $url to $Path"
     } catch {
-        Write-Log -Level "WARN" -Message "Failed to clone $Path: $_"
+        Write-Log -Level "WARN" -Message "Failed to clone ${Path}: $_"
     }
 }
 

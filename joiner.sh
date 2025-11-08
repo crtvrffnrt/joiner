@@ -21,7 +21,7 @@ SCRIPT_SUCCESS=false
 
 PROMPT_FOR_CONNECTION=true
 CLEANUP_STALE_GROUPS=true
-DELETE_FAILED_RG=true
+DELETE_FAILED_RG=false
 LOCATION="$DEFAULT_LOCATION"
 VM_SIZE="$DEFAULT_VM_SIZE"
 VM_IMAGE="$DEFAULT_IMAGE"
@@ -41,7 +41,8 @@ Optional
       --vm-size      Azure VM SKU (default: Standard_F4s)
       --image        Azure image URN (default: Win11 25H2 CPC M365)
       --keep-old     Skip deleting previously created thiefjoinerRGDeleteme* groups
-      --keep-on-fail Keep the newly created resource group when the script fails
+      --delete-on-fail Delete the newly created resource group when the script fails (default is to keep it for debugging)
+      --keep-on-fail Legacy alias for previous behavior (now enabled by default)
       --no-connect   Do not offer an interactive SSH/RDP connection at the end
   -h, --help         Show this help and exit
 EOF
@@ -450,7 +451,12 @@ parse_args() {
                 CLEANUP_STALE_GROUPS=false
                 shift
                 ;;
+            --delete-on-fail)
+                DELETE_FAILED_RG=true
+                shift
+                ;;
             --keep-on-fail)
+                display_message "--keep-on-fail is deprecated; resource groups are now kept by default." "yellow"
                 DELETE_FAILED_RG=false
                 shift
                 ;;

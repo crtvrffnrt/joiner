@@ -13,7 +13,7 @@ function Write-Log {
         [ValidateSet("INFO","ERROR")][string]$Level = "INFO"
     )
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $entry = "$timestamp - $Level: $Message"
+    $entry = "$timestamp - ${Level}: $Message"
     $color = if ($Level -eq "ERROR") { "Red" } else { "Cyan" }
     Write-Host $entry -ForegroundColor $color
     if ($Level -eq "ERROR") {

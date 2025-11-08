@@ -12,7 +12,7 @@ function Write-Log {
         [ValidateSet("INFO","WARN","ERROR")][string]$Level = "INFO"
     )
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $entry = "$timestamp - $Level: $Message"
+    $entry = "$timestamp - ${Level}: $Message"
     $color = switch ($Level) {
         "INFO" { "Cyan" }
         "WARN" { "Yellow" }
@@ -104,7 +104,7 @@ function Clone-Repo {
         git clone $decoded $Path | Out-Null
         Write-Log "Cloned $decoded to $Path"
     } catch {
-        Write-Log -Level "WARN" -Message "Failed to clone $Path: $_"
+        Write-Log -Level "WARN" -Message "Failed to clone ${Path}: $_"
     }
 }
 

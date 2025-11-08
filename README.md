@@ -119,7 +119,7 @@ Each script writes to `C:\setup_log.txt` on errors and drops a marker folder (`C
 
 ## Security & Clean-Up Considerations
 
-- Both deployment scripts intentionally delete resource groups that match `WinServAttack*` (or legacy `thiefjoinerRGDeleteme*`). Never reuse those prefixes for persistent infrastructure.
+- `joiner.sh` keeps the freshly created resource group on failure so you can investigate. Pass `--delete-on-fail` if you still want the cleanup behavior. `createWinServer.sh` continues to delete stale `WinServAttack*` groups on startup. Never reuse those prefixes for persistent infrastructure.
 - Defender, firewall, LSASS, and WinRM changes are invasive. Run the guest-side scripts only in labs you can rebuild from scratch.
 - Credentials passed to `joiner.sh` or stored by `1.ps1` are in plaintext for automation purposes—rotate them immediately after use.
 - To destroy a lab quickly, delete the generated resource group:
