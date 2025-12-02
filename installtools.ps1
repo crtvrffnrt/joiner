@@ -4,7 +4,14 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$ConfirmPreference = "None"
+$PSDefaultParameterValues["*:Confirm"] = $false
+$PSDefaultParameterValues["*:Force"] = $true
+$PSDefaultParameterValues["*:UseBasicParsing"] = $true
 $LogFile = "C:\setup_log.txt"
+
+# Ensure PowerShell stays non-interactive.
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force | Out-Null
 
 function Write-Log {
     param(
@@ -71,7 +78,7 @@ function Ensure-Module {
     param([Parameter(Mandatory)][string]$Name)
     try {
         if (-not (Get-Module -ListAvailable -Name $Name)) {
-            Install-Module -Name $Name -Force -Scope CurrentUser -AllowClobber -ErrorAction Stop
+            Install-Module -Name $Name -Force -Confirm:$false -Scope CurrentUser -AllowClobber -ErrorAction Stop
             Write-Log "Installed module $Name"
         } else {
             Write-Log "Module $Name already installed."
@@ -118,6 +125,46 @@ function Configure-Desktop {
     }
 }
 
+function Configure-EdgeFirstUse {
+    # Configure Edge policies so first launch works without signing into a profile.
+    $edgePolicyPath = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
+    try {
+        New-Item -Path $edgePolicyPath -Force | Out-Null
+        # 0 = disabled; prevents Edge from forcing sign-in on first launch.
+        Set-ItemProperty -Path $edgePolicyPath -Name "BrowserSignin" -Type DWord -Value 0
+        # Allow guest mode so a throwaway profile is available immediately.
+        Set-ItemProperty -Path $edgePolicyPath -Name "BrowserGuestModeEnabled" -Type DWord -Value 1
+        # Skip the first run experience that normally prompts for account linking.
+        Set-ItemProperty -Path $edgePolicyPath -Name "HideFirstRunExperience" -Type DWord -Value 1
+        Write-Log "Edge first-use policies set for profile-less launch."
+    } catch {
+        Write-Log -Level "WARN" -Message "Failed to set Edge first-use policies: $_"
+    }
+}
+
+function Configure-KeyboardLayout {
+    try {
+        # Keep English display language while preferring a German keyboard layout.
+        $languages = New-WinUserLanguageList "en-US"
+        $languages.Add("de-DE")
+        Set-WinUserLanguageList -LanguageList $languages -Force
+        Set-ItemProperty -Path "HKCU:\Keyboard Layout\Preload" -Name 1 -Value "00000407"
+        Set-ItemProperty -Path "HKCU:\Keyboard Layout\Preload" -Name 2 -Value "00000409"
+        Write-Log "Keyboard layout set to German with English display language."
+    } catch {
+        Write-Log -Level "WARN" -Message "Keyboard layout configuration failed: $_"
+    }
+}
+
+function Trust-PowerShellGallery {
+    try {
+        Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted -ErrorAction Stop
+        Write-Log "PSGallery marked as trusted."
+    } catch {
+        Write-Log -Level "WARN" -Message "Could not mark PSGallery as trusted: $_"
+    }
+}
+
 function Finalize-Setup {
     try {
         New-Item -Path "C:\endofscriptreached_final" -ItemType Directory -Force | Out-Null
@@ -147,6 +194,7 @@ foreach ($pkg in @(
     Install-WingetPackage -Id $pkg
 }
 
+Trust-PowerShellGallery
 foreach ($module in @("AADInternals","Microsoft.Graph","AzureAD","AzureAD.Standard.Preview","MSOnline","Az","Az.Resources")) {
     Ensure-Module -Name $module
 }
@@ -175,4 +223,6 @@ try {
 }
 
 Configure-Desktop
+Configure-EdgeFirstUse
+Configure-KeyboardLayout
 Finalize-Setup
