@@ -42,7 +42,7 @@ All PowerShell scripts now share consistent logging helpers, strict-mode executi
 ## Quick Start (Joiner Workstation)
 
 ```bash
-git clone https://github.com/<your-org>/joiner.git
+git clone https://github.com/crtvrffnrt/joiner
 cd joiner
 chmod +x joiner.sh
 ./joiner.sh -r "<your-public-ip>" -u "<entra-upn>" -d "<entra-domain>" -p "<entra-password>"
